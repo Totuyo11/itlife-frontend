@@ -1,0 +1,24 @@
+# Node modules
+node_modules/
+
+# Builds
+build/
+dist/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Env variables
+.env
+.env.local
+
+# Editor configs
+.vscode/
+.idea/
+
+# Firebase emulator
+firebase-debug.log

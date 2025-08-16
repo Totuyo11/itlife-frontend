@@ -1,0 +1,48 @@
+.mis-datos-container {
+  max-width: 500px;
+  margin: 0 auto;
+  padding: 2rem;
+  background-color: #121212;
+  border-radius: 1rem;
+  box-shadow: 0 0 20px rgba(255, 0, 0, 0.3);
+  color: #fff;
+  text-align: center;
+}
+
+h2 {
+  font-size: 1.8rem;
+  margin-bottom: 1.5rem;
+  color: #ff4747;
+}
+
+.datos-box {
+  text-align: left;
+  background-color: #1e1e1e;
+  padding: 1rem 1.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid #ff4747;
+}
+
+.datos-box p {
+  margin: 0.5rem 0;
+  font-size: 1rem;
+}
+
+.datos-box strong {
+  color: #ff4747;
+}
+.user-info input {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  margin-top: 5px;
+  margin-bottom: 15px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+}
+
+.user-info label {
+  font-weight: bold;
+  margin-top: 10px;
+  display: block;
+}

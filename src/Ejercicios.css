@@ -1,0 +1,79 @@
+.ejercicios-container {
+  padding: 2rem;
+  color: white;
+  text-align: center;
+}
+
+.filtros {
+  margin-bottom: 1.5rem;
+}
+
+.filtro-btn {
+  background: none;
+  color: white;
+  border: 2px solid #ff3c41;
+  margin: 0 5px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  border-radius: 5px;
+  transition: 0.2s ease;
+}
+
+.filtro-btn.activo,
+.filtro-btn:hover {
+  background-color: #ff3c41;
+  color: black;
+}
+
+.grid-ejercicios {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 2rem;
+}
+
+.card-ejercicio {
+  background-color: #1c1c1c;
+  padding: 1.5rem;
+  border-radius: 15px;
+  box-shadow: 0 0 15px #ff3c41;
+  text-align: center;
+}
+
+.card-ejercicio img {
+  width: 100%;
+  height: 160px;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+.card-ejercicio h3 {
+  margin: 1rem 0 0.5rem;
+  font-size: 1.3rem;
+  color: #ff3c41;
+}
+
+.card-ejercicio .categoria {
+  font-size: 0.9rem;
+  color: #aaa;
+  margin-bottom: 0.5rem;
+}
+
+.card-ejercicio .descripcion {
+  font-size: 0.95rem;
+  margin-bottom: 1rem;
+  color: #ddd;
+}
+
+.fav-btn {
+  background-color: #ff3c41;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  color: black;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.fav-btn:hover {
+  background-color: #ff6367;
+}

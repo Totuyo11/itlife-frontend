@@ -1,59 +1,51 @@
 import React, { useState } from 'react';
+import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
-import './Login.css';
-import loginImage from './assets/login-image.png';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from './firebase';
+import './Register.css'; // mismo estilo visual
 
 function Login() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [correo, setCorreo] = useState('');
+  const [contraseña, setContraseña] = useState('');
+  const [mensaje, setMensaje] = useState('');
   const navigate = useNavigate();
 
-  const handleLogin = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
-    setLoading(true);
+    const auth = getAuth();
+
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      navigate('/');
-    } catch (err) {
-      setError('Correo o contraseña incorrectos');
+      await signInWithEmailAndPassword(auth, correo, contraseña);
+      setMensaje('✅ Inicio de sesión exitoso. Redirigiendo...');
+      setTimeout(() => {
+        navigate('/dashboard');
+      }, 2000);
+    } catch (error) {
+      setMensaje('❌ ' + error.message);
     }
-    setLoading(false);
   };
 
   return (
-    <div className="login-container">
-      <div className="login-card">
-        <div className="login-left">
-          <img src={loginImage} alt="Motivation" />
-        </div>
-        <div className="login-right">
-          <h2>Iniciar Sesión</h2>
-          <form onSubmit={handleLogin}>
-            <input
-              type="email"
-              placeholder="Correo electrónico"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-            <input
-              type="password"
-              placeholder="Contraseña"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-            {error && <p className="error">{error}</p>}
-            <button type="submit" disabled={loading}>
-              {loading ? 'Entrando...' : 'Entrar'}
-            </button>
-          </form>
-        </div>
+    <div className="registro-container">
+      <div className="form-box">
+        <h2 className="titulo-login">Iniciar sesión</h2>
+        <form onSubmit={handleSubmit} className="registro-form">
+          <input
+            type="email"
+            placeholder="Correo electrónico"
+            value={correo}
+            onChange={(e) => setCorreo(e.target.value)}
+            required
+          />
+          <input
+            type="password"
+            placeholder="Contraseña"
+            value={contraseña}
+            onChange={(e) => setContraseña(e.target.value)}
+            required
+          />
+          <button type="submit">Entrar</button>
+          {mensaje && <p className="mensaje">{mensaje}</p>}
+        </form>
       </div>
     </div>
   );

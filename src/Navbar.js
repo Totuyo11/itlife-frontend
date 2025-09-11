@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from './AuthContext';
-import ThemeToggle from './components/ThemeToggle'; // ⬅️ NUEVO
-import './Register.css'; // estilos neón
+import './Register.css'; // estilos neón + light
 
 function classNames(...xs) {
   return xs.filter(Boolean).join(' ');
@@ -20,10 +19,35 @@ function UserAvatar({ user }) {
   );
 }
 
+// === Helpers de tema ===
+function readStoredTheme() {
+  try { return localStorage.getItem('fitlife:theme'); } catch { return null; }
+}
+function storeTheme(v) {
+  try { localStorage.setItem('fitlife:theme', v); } catch {}
+}
+function getSystemPref() {
+  if (typeof window === 'undefined') return 'dark';
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+    ? 'light'
+    : 'dark';
+}
+function applyThemeAttr(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+}
+
 export default function Navbar() {
   const { user, loading, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const [menuUserOpen, setMenuUserOpen] = useState(false);
+  const [theme, setTheme] = useState(() => {
+    const stored = readStoredTheme();
+    const initial = stored || getSystemPref() || 'dark';
+    // aplica de inmediato para evitar “flash”
+    if (typeof document !== 'undefined') applyThemeAttr(initial);
+    return initial;
+  });
+
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -53,6 +77,29 @@ export default function Navbar() {
       document.removeEventListener('keydown', onEsc);
     };
   }, [menuUserOpen]);
+
+  // Reaccionar si cambia el sistema (opcional)
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: light)');
+    const handler = () => {
+      const stored = readStoredTheme();
+      if (!stored) {
+        const sys = mq.matches ? 'light' : 'dark';
+        setTheme(sys);
+        applyThemeAttr(sys);
+      }
+    };
+    mq.addEventListener?.('change', handler);
+    return () => mq.removeEventListener?.('change', handler);
+  }, []);
+
+  // Toggle de tema
+  function toggleTheme() {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    applyThemeAttr(next);
+    storeTheme(next);
+  }
 
   const links = [
     { to: '/', label: 'Inicio', public: true },
@@ -98,8 +145,15 @@ export default function Navbar() {
 
         {/* Right actions */}
         <div className="nav-actions">
-          {/* ⬇️ Toggle de tema siempre visible en desktop */}
-          <ThemeToggle />
+          {/* Toggle de tema */}
+          <button
+            className="theme-toggle"
+            aria-label={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+            title={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+            onClick={toggleTheme}
+          >
+            {theme === 'dark' ? '☀️' : '🌙'}
+          </button>
 
           {loading ? null : user ? (
             <div className="userbox" ref={userMenuRef}>
@@ -152,11 +206,6 @@ export default function Navbar() {
       {/* Mobile menu */}
       {open && (
         <div id="mobile-menu" className="mobile-menu" role="dialog" aria-modal="true">
-          {/* ⬇️ Toggle de tema también en móvil */}
-          <div className="mobile-auth" style={{ marginBottom: 8 }}>
-            <ThemeToggle />
-          </div>
-
           <nav className="mobile-links" onClick={() => setOpen(false)}>
             {links
               .filter(l => (l.private ? !!user : l.public))
@@ -190,10 +239,10 @@ export default function Navbar() {
                 </div>
               </div>
               <div className="mobile-user-actions">
-                <button className="menu-item" onClick={() => { setOpen(false); navigate('/misdatos'); }}>
+                <button className="menu-item" onClick={() => navigate('/misdatos')}>
                   Mi perfil
                 </button>
-                <button className="menu-item" onClick={() => { setOpen(false); navigate('/dashboard'); }}>
+                <button className="menu-item" onClick={() => navigate('/dashboard')}>
                   Dashboard
                 </button>
                 <button className="menu-item danger" onClick={handleLogout}>

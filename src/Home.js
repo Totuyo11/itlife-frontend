@@ -1,3 +1,4 @@
+// src/Home.jsx
 import React, { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import "./Register.css";
@@ -27,23 +28,35 @@ export default function Home() {
     return () => io.disconnect();
   }, []);
 
+  // === Logros mock para la bandita del Home (muestra 3-4 insignias)
+  const sampleHomeBadges = [
+    { id: "first-session", icon: "🥇", title: "1er entreno", unlocked: true },
+    { id: "streak-7", icon: "🔥", title: "Racha 7d", unlocked: false },
+    { id: "ten-workouts", icon: "💪", title: "10 sesiones", unlocked: false },
+    { id: "goal-weight", icon: "🎯", title: "Meta peso", unlocked: false },
+  ];
+
   return (
     <div className="home">
       {/* ===== HERO ===== */}
       <section className="hero hero--svg hero--offset">
         <div className="hero-deco">
           <svg className="glow glow-a" viewBox="0 0 600 600" aria-hidden="true">
-            <defs><radialGradient id="gA" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="rgba(255,64,129,0.75)" />
-              <stop offset="100%" stopColor="rgba(255,64,129,0)" />
-            </radialGradient></defs>
+            <defs>
+              <radialGradient id="gA" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="rgba(255,64,129,0.75)" />
+                <stop offset="100%" stopColor="rgba(255,64,129,0)" />
+              </radialGradient>
+            </defs>
             <circle cx="300" cy="300" r="300" fill="url(#gA)" />
           </svg>
           <svg className="glow glow-b" viewBox="0 0 600 600" aria-hidden="true">
-            <defs><radialGradient id="gB" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="rgba(109,40,217,0.7)" />
-              <stop offset="100%" stopColor="rgba(109,40,217,0)" />
-            </radialGradient></defs>
+            <defs>
+              <radialGradient id="gB" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="rgba(109,40,217,0.7)" />
+                <stop offset="100%" stopColor="rgba(109,40,217,0)" />
+              </radialGradient>
+            </defs>
             <circle cx="300" cy="300" r="300" fill="url(#gB)" />
           </svg>
           <svg className="wave wave-top" viewBox="0 0 1440 320" preserveAspectRatio="none" aria-hidden="true">
@@ -176,6 +189,34 @@ export default function Home() {
           <summary>¿Tienen modo oscuro y claro?</summary>
           <p>Sí, puedes alternar desde el botón del navbar (☀️/🌙).</p>
         </details>
+      </section>
+
+      {/* ===== BANDITA DE LOGROS (NUEVO) ===== */}
+      <section className="section container ach-band">
+        <header className="ach-band-head">
+          <h2>Logros recientes</h2>
+          <p className="ach-band-sub">Sigue entrenando para desbloquear más insignias</p>
+        </header>
+
+        <div className="ach-mini-row">
+          {sampleHomeBadges.slice(0, 4).map((b) => (
+            <div
+              key={b.id}
+              className={`ach-mini ${b.unlocked ? "mini-unlocked" : "mini-locked"}`}
+              title={b.unlocked ? "Desbloqueado" : "Pendiente"}
+              aria-label={b.title}
+            >
+              <div className="mini-icon" aria-hidden="true">{b.icon}</div>
+              <div className="mini-title">{b.title}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="ach-band-actions">
+          <button className="btn-primary" onClick={() => navigate("/dashboard")}>
+            Ver todos los logros
+          </button>
+        </div>
       </section>
 
       {/* ===== CTA FINAL ===== */}

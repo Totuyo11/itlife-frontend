@@ -14,13 +14,16 @@ import {
 } from "recharts";
 import { useAuth } from "../AuthContext";
 import Achievements from "../components/Achievements";
+import QuickSession from "../components/QuickSession";
+import GoalWeightCard from "../components/GoalWeightCard";               // ✅ NUEVO
 
-// 🔧 importa desde services con extensión .js
+// servicios
 import {
   listenUserDashboard,
   syncAchievements,
   buildBadges,
-} from "../services/stats.js";
+} from "../services/stats";
+import { subscribeGoalWeight } from "../services/userProfile";          // ✅ NUEVO
 
 // --- helpers para mock inicial ---
 function makeLastNDays(n = 14) {
@@ -46,6 +49,9 @@ export default function Dashboard() {
   const [stats, setStats] = useState({ sesiones7d: 0, rachaActiva: 0, ultimoPeso: null });
   const [achDoc, setAchDoc] = useState(null);
   const [badges, setBadges] = useState([]);
+
+  // ✅ meta de peso
+  const [goalWeight, setGoalWeight] = useState(null);
 
   // tema para colores del chart
   const readTheme = () =>
@@ -103,21 +109,34 @@ export default function Dashboard() {
       setStats({ sesiones7d: 0, rachaActiva: 0, ultimoPeso: null });
       setAchDoc(null);
       setBadges([]);
+      setGoalWeight(null);
       return;
     }
 
+    // 1) dashboard (weights/sessions/achievements)
     const unsub = listenUserDashboard(user.uid, ({ series, stats, achievementsDoc }) => {
       setSerie(series);
       setStats(stats);
       setAchDoc(achievementsDoc || null);
-      const b = buildBadges(stats, achievementsDoc);
-      setBadges(b);
-      // opcional: sincroniza logros al vuelo
-      syncAchievements(user.uid, stats).catch(() => {});
+
+      // ⚠️ usa goalWeight más reciente del estado
+      setBadges(buildBadges(stats, achievementsDoc, goalWeight));
+      // sincroniza logros (incluye meta si aplica)
+      syncAchievements(user.uid, stats, goalWeight).catch(() => {});
     });
 
-    return () => unsub && unsub();
-  }, [user]);
+    // 2) meta de peso
+    const unsubGoal = subscribeGoalWeight(user.uid, ({ goalWeight }) => {
+      setGoalWeight(goalWeight ?? null);
+      // recalcula badges con meta actual
+      setBadges((prev) => buildBadges(stats, achDoc, goalWeight ?? null));
+      // re-sincroniza logro de meta si aplica
+      syncAchievements(user.uid, stats, goalWeight ?? null).catch(() => {});
+    });
+
+    return () => { unsub && unsub(); unsubGoal && unsubGoal(); };
+    // ✅ dependencia en goalWeight para que el callback use la meta vigente
+  }, [user, goalWeight]); 
 
   return (
     <div className="dash-wrap">
@@ -144,6 +163,25 @@ export default function Dashboard() {
         </div>
       </section>
 
+      {/* ✅ Objetivo de peso */}
+      <section className="dash-section">
+        <div className="dash-sec-head">
+          <h2>Objetivo</h2>
+          <div className="dash-sec-note">Define tu meta de peso y desbloquea el logro 🎯</div>
+        </div>
+        {user ? (
+          <div className="dash-grid">
+            <GoalWeightCard
+              uid={user.uid}
+              goalWeight={goalWeight}
+              ultimoPeso={stats.ultimoPeso}
+            />
+          </div>
+        ) : (
+          <div className="dash-alert">Inicia sesión para definir tu meta.</div>
+        )}
+      </section>
+
       {/* Heatmap semanal (decorativo por ahora) */}
       <section className="dash-section">
         <div className="dash-sec-head">
@@ -160,6 +198,19 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
+      </section>
+
+      {/* Registrar sesión rápida */}
+      <section className="dash-section">
+        <div className="dash-sec-head">
+          <h2>Registrar sesión rápida</h2>
+          <div className="dash-sec-note">Minutos, volumen y una nota — listo en 10s</div>
+        </div>
+        {user ? (
+          <QuickSession uid={user.uid} />
+        ) : (
+          <div className="dash-alert">Inicia sesión para registrar tus entrenos.</div>
+        )}
       </section>
 
       {/* Línea de peso */}

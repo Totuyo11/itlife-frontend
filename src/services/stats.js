@@ -9,10 +9,15 @@ import {
   setDoc,
   doc,
   getDoc,
+  updateDoc,
 } from "firebase/firestore";
-import { db } from "../firebase"; // ← corregido (antes ../../firebase)
+import { db } from "../firebase";
 
-// ------- Helpers de fecha -------
+/* ========================
+   Config & Helpers
+======================== */
+const GOAL_TOL_KG = 0.2; // tolerancia para considerar meta alcanzada
+
 function startOfDay(d = new Date()) {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
@@ -24,10 +29,10 @@ function addDays(d, n) {
   return x;
 }
 
-/**
- * Construye array de últimos N días con labels "dd MMM"
- * y rellena pesoSerie / volumen usando documentos traídos.
- */
+/* ========================
+   Series & Stats
+======================== */
+/** Construye array de últimos N días con labels "dd MMM", rellena peso/volumen */
 export function buildSeries(lastNDays, weightsDocs, sessionsDocs) {
   const out = [];
   const today = startOfDay(new Date());
@@ -52,7 +57,6 @@ export function buildSeries(lastNDays, weightsDocs, sessionsDocs) {
   for (let i = lastNDays - 1; i >= 0; i--) {
     const day = addDays(today, -i);
     const key = startOfDay(day).toISOString();
-
     out.push({
       fecha: day.toLocaleDateString("es-MX", { day: "2-digit", month: "short" }),
       date: day,
@@ -63,9 +67,7 @@ export function buildSeries(lastNDays, weightsDocs, sessionsDocs) {
   return out;
 }
 
-/**
- * Calcula estadísticas: sesiones últimos 7d, racha activa, último peso.
- */
+/** Calcula estadísticas: sesiones últimos 7d, racha activa, último peso. */
 export function computeStats(series) {
   const last7 = series.slice(-7);
   const sesiones7d = last7.reduce((acc, d) => acc + (d.volumen ? 1 : 0), 0);
@@ -83,16 +85,23 @@ export function computeStats(series) {
       break;
     }
   }
-
   return { sesiones7d, rachaActiva, ultimoPeso };
 }
 
+/* ========================
+   Firestore listeners (optimizados)
+======================== */
 /**
- * Suscripción realtime a pesos/sesiones (últimos 30d) + achievements doc.
+ * Suscripción en tiempo real a pesos/sesiones (últimos 30d) + lectura puntual de achievements.
+ * - users/{uid}/weights
+ * - users/{uid}/sessions
+ * - users/{uid}/achievements/meta
+ *
+ * ⚠️ Para reducir cuota: achievements se lee con getDoc (no onSnapshot).
  */
 export function listenUserDashboard(uid, onData) {
-  const startOf = startOfDay(new Date());
-  const fromDate = addDays(startOf, -29); // 30 días
+  const today = startOfDay(new Date());
+  const fromDate = addDays(today, -29);
   const fromTs = Timestamp.fromDate(fromDate);
 
   const wRef = collection(db, "users", uid, "weights");
@@ -127,22 +136,27 @@ export function listenUserDashboard(uid, onData) {
     sync();
   });
 
-  const unsubA = onSnapshot(aRef, (snap) => {
-    achievementsDoc = snap.exists() ? snap.data() : null;
-    sync();
-  });
+  // Si quisieras realtime de achievements, descomenta esto (más lecturas):
+  // const unsubA = onSnapshot(aRef, (snap) => {
+  //   achievementsDoc = snap.exists() ? snap.data() : null;
+  //   sync();
+  // });
 
   return () => {
     unsubW();
     unsubS();
-    unsubA();
+    // unsubA && unsubA();
   };
 }
 
+/* ========================
+   Achievements (incluye meta de peso)
+======================== */
 /**
- * Sincroniza logros con Firestore (merge).
+ * Sincroniza logros (merge). goalWeight es opcional.
+ * Mantiene compatibilidad con llamadas existentes (puedes pasar solo uid, stats).
  */
-export async function syncAchievements(uid, stats) {
+export async function syncAchievements(uid, stats, goalWeight) {
   if (!uid) return;
   const aRef = doc(db, "users", uid, "achievements", "meta");
 
@@ -150,24 +164,41 @@ export async function syncAchievements(uid, stats) {
     { id: "first-session", test: (s) => s.sesiones7d > 0 },
     { id: "streak-7", test: (s) => s.rachaActiva >= 7 },
     { id: "ten-workouts", test: (s) => s.sesiones7d >= 10 },
-    // "goal-weight" depende de meta de usuario.
   ];
+
+  // 🎯 Meta de peso (con tolerancia) si la tienes disponible
+  if (
+    typeof goalWeight === "number" &&
+    goalWeight > 0 &&
+    stats.ultimoPeso != null &&
+    stats.ultimoPeso <= goalWeight + GOAL_TOL_KG
+  ) {
+    defs.push({ id: "goal-weight", test: () => true });
+  }
 
   const now = Timestamp.now();
   const payload = {};
   defs.forEach((d) => {
     if (d.test(stats)) payload[d.id] = now;
   });
-  if (Object.keys(payload).length === 0) return;
 
+  if (Object.keys(payload).length === 0) return;
   await setDoc(aRef, payload, { merge: true });
 }
 
-/**
- * Convierte achievementsDoc + stats a array de badges.
- */
-export function buildBadges(stats, achievementsDoc) {
-  const nowUnlocked = new Set(Object.keys(achievementsDoc || {}));
+/** Construye badges para UI usando achievements + estado actual + meta */
+export function buildBadges(stats, achievementsDoc, goalWeight) {
+  const unlocked = new Set(Object.keys(achievementsDoc || {}));
+  const getTs = (id) => {
+    const v = achievementsDoc?.[id];
+    return v?.toDate ? v.toDate().getTime() : v ? Date.now() : null;
+  };
+
+  const goalReached =
+    typeof goalWeight === "number" &&
+    goalWeight > 0 &&
+    stats.ultimoPeso != null &&
+    stats.ultimoPeso <= goalWeight + GOAL_TOL_KG;
 
   return [
     {
@@ -175,10 +206,8 @@ export function buildBadges(stats, achievementsDoc) {
       icon: "🥇",
       title: "Primer entrenamiento",
       desc: "Registra tu primera sesión",
-      unlockedAt: nowUnlocked.has("first-session")
-        ? (achievementsDoc["first-session"]?.toDate
-            ? achievementsDoc["first-session"].toDate().getTime()
-            : Date.now())
+      unlockedAt: unlocked.has("first-session")
+        ? getTs("first-session")
         : stats.sesiones7d > 0
         ? Date.now()
         : null,
@@ -188,10 +217,8 @@ export function buildBadges(stats, achievementsDoc) {
       icon: "🔥",
       title: "Racha de 7 días",
       desc: "Entrena 7 días seguidos",
-      unlockedAt: nowUnlocked.has("streak-7")
-        ? (achievementsDoc["streak-7"]?.toDate
-            ? achievementsDoc["streak-7"].toDate().getTime()
-            : Date.now())
+      unlockedAt: unlocked.has("streak-7")
+        ? getTs("streak-7")
         : stats.rachaActiva >= 7
         ? Date.now()
         : null,
@@ -201,10 +228,8 @@ export function buildBadges(stats, achievementsDoc) {
       icon: "💪",
       title: "10 sesiones",
       desc: "Completa 10 entrenamientos",
-      unlockedAt: nowUnlocked.has("ten-workouts")
-        ? (achievementsDoc["ten-workouts"]?.toDate
-            ? achievementsDoc["ten-workouts"].toDate().getTime()
-            : Date.now())
+      unlockedAt: unlocked.has("ten-workouts")
+        ? getTs("ten-workouts")
         : stats.sesiones7d >= 10
         ? Date.now()
         : null,
@@ -213,8 +238,30 @@ export function buildBadges(stats, achievementsDoc) {
       id: "goal-weight",
       icon: "🎯",
       title: "Meta de peso",
-      desc: "Alcanza tu peso objetivo",
-      unlockedAt: null,
+      desc: goalWeight ? `Alcanza ${goalWeight} kg` : "Define tu meta de peso",
+      unlockedAt: unlocked.has("goal-weight")
+        ? getTs("goal-weight")
+        : goalReached
+        ? Date.now()
+        : null,
     },
   ];
+}
+
+/* ========================
+   Goal helpers (meta de peso)
+======================== */
+/** Lee la meta de peso (en kg) desde users/{uid} */
+export async function getUserGoal(uid) {
+  const userRef = doc(db, "users", uid);
+  const snap = await getDoc(userRef);
+  if (!snap.exists()) return null;
+  const data = snap.data();
+  return typeof data.goalWeight === "number" ? data.goalWeight : null;
+}
+
+/** Guarda/actualiza la meta de peso en users/{uid} */
+export async function setUserGoal(uid, kg) {
+  const userRef = doc(db, "users", uid);
+  await updateDoc(userRef, { goalWeight: kg });
 }

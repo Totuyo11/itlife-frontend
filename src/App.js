@@ -10,7 +10,7 @@ const Home = lazy(() => import('./Home'));
 const Login = lazy(() => import('./Login'));
 const Register = lazy(() => import('./Register'));
 const MisDatos = lazy(() => import('./MisDatos'));
-const Rutinas = lazy(() => import('./Rutinas'));
+const Rutinas = lazy(() => import('./pages/Rutinas'));
 const Ejercicios = lazy(() => import('./Ejercicios'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const SeedAdminFirestore = lazy(() => import('./SeedAdminFirestore'));

@@ -1211,3 +1211,83 @@ body {
 :root[data-theme="light"] .mini-unlocked {
   background: #e6f6ee; border-color: #a5d6bd;
 }
+/* ===== Ejercicios (grid bonito) ===== */
+.ex-wrap { max-width: 1100px; margin: 22px auto; padding: 0 16px; }
+
+.ex-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.ex-title { margin: 4px 0 2px; font-size: clamp(1.4rem, 1.1rem + 1vw, 1.9rem); font-weight: 900; color: #fff; }
+.ex-sub { margin: 0; color: #cbd5e1; }
+
+.ex-kpis { display: grid; grid-auto-flow: column; gap: 10px; }
+.ex-kpi { background: rgba(255,255,255,.05); border: 1px solid rgba(255, 64, 129,.25); padding: 8px 12px; border-radius: 12px; text-align: center; }
+.ex-kpi-top { color: #fff; font-weight: 900; font-size: 1.3rem; }
+.ex-kpi-foot { color: #cbd5e1; font-size: .9rem; }
+
+/* Filtros */
+.ex-filters { display: grid; gap: 10px; margin: 10px 0 14px; }
+.ex-search input {
+  width: 100%; padding: 12px 14px; border-radius: 12px;
+  background: var(--input-bg); color: #fff; border: 1px solid var(--border);
+  box-shadow: inset 0 0 5px var(--pink);
+}
+.ex-search input:focus { outline: none; border-color: var(--pink); box-shadow: 0 0 10px var(--pink); }
+
+.ex-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip {
+  padding: 7px 12px; border-radius: 999px; color: #fff; border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06); cursor: pointer; transition: transform .12s ease, background .15s ease;
+}
+.chip:hover { background: rgba(255,255,255,.1); transform: translateY(-1px); }
+.chip-active { border-color: rgba(255, 64, 129,.5); box-shadow: 0 0 12px rgba(255, 64, 129,.25) inset; }
+
+.ex-levels select {
+  padding: 10px 12px; border-radius: 12px; background: var(--input-bg); color: #fff; border: 1px solid var(--border);
+}
+.ex-levels select:focus { outline: none; border-color: var(--pink); box-shadow: 0 0 10px var(--pink); }
+
+/* Grid y tarjetas */
+.ex-grid { display: grid; gap: 12px; grid-template-columns: repeat(12, 1fr); }
+.ex-card {
+  grid-column: span 12;
+  display: grid; grid-template-columns: 110px 1fr; gap: 10px; align-items: center;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255, 64, 129,.25);
+  border-radius: 16px; padding: 8px; cursor: pointer;
+  transition: transform .12s ease, background .15s ease, border-color .15s ease;
+}
+.ex-card:hover { transform: translateY(-2px); background: rgba(255,255,255,.07); border-color: rgba(255, 64, 129,.4); }
+
+@media (min-width: 640px) { .ex-card { grid-column: span 6; } }
+@media (min-width: 980px) { .ex-card { grid-column: span 4; } }
+
+.ex-thumb { border-radius: 12px; overflow: hidden; height: 88px; display: grid; place-items: center; background: rgba(0,0,0,.28); }
+.ex-thumb-deco { width: 100%; height: 100%; }
+.m-pecho   { background: linear-gradient(135deg, rgba(255,64,129,.4), rgba(255, 64, 129,.15)); }
+.m-espalda { background: linear-gradient(135deg, rgba(59,130,246,.35), rgba(59,130,246,.12)); }
+.m-pierna  { background: linear-gradient(135deg, rgba(34,197,94,.35), rgba(34,197,94,.12)); }
+.m-hombro  { background: linear-gradient(135deg, rgba(234,179,8,.35), rgba(234,179,8,.12)); }
+.m-brazo   { background: linear-gradient(135deg, rgba(192,132,252,.35), rgba(192,132,252,.12)); }
+.m-core    { background: linear-gradient(135deg, rgba(14,165,233,.35), rgba(14,165,233,.12)); }
+
+.ex-body { padding-right: 8px; }
+.ex-name { margin: 2px 0 6px; color: #fff; font-weight: 800; }
+.ex-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.bx-badge {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px;
+  font-weight: 700; font-size: .85rem; border: 1px solid transparent; background: rgba(255,255,255,.06); color: #fff;
+}
+.bx-pink   { border-color: rgba(255, 64, 129,.35); }
+.bx-indigo { border-color: rgba(99,102,241,.35); }
+.bx-emerald{ border-color: rgba(16,185,129,.35); }
+.bx-slate  { border-color: rgba(148,163,184,.35); }
+
+/* Empty */
+.ex-empty { grid-column: 1 / -1; text-align: center; padding: 22px; border-radius: 14px;
+  background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
+}
+.ex-empty-ico { font-size: 2rem; margin-bottom: 6px; }
+
+/* Tips en modal */
+.ex-tips { margin: 6px 0 0; padding-left: 16px; color: #e5e7eb; }
+.ex-tips li { margin: 2px 0; }

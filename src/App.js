@@ -15,6 +15,12 @@ const Ejercicios = lazy(() => import('./Ejercicios'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const SeedAdminFirestore = lazy(() => import('./SeedAdminFirestore'));
 
+// 🔹 NUEVO: seed desde JSON (routines.json)
+const SeedRoutinesFromJSON = lazy(() => import('./SeedRoutinesFromJSON'));
+
+// 🔹 NUEVO: Recomendador de rutinas (Opción 1)
+const RutinasRecomendadas = lazy(() => import('./pages/RutinasRecomendadas'));
+
 // (Opcional) reset de contraseña si lo tienes/crearás
 const ResetPassword = lazy(() => import('./ResetPassword').catch(() => ({ default: () => (
   <div className="registro-container"><div className="form-box"><h2>Recuperar contraseña</h2>
@@ -55,7 +61,7 @@ function PublicOnlyRoute({ children }) {
 
 // 🛡️ Admin/Seed protegido
 const ALLOWED_ADMINS = [
-  // 'tu-uid-de-firebase-aqui'
+  "XbuiurTJjLRMZpKojLRyC1d0dRa2" // ✅ tu UID
 ];
 function AdminRoute({ children }) {
   const { user, loading } = useAuth();
@@ -87,11 +93,13 @@ function AppShell() {
           {/* Privadas */}
           <Route path="/misdatos" element={<PrivateRoute><MisDatos /></PrivateRoute>} />
           <Route path="/rutina" element={<PrivateRoute><Rutinas /></PrivateRoute>} />
+          <Route path="/recomendadas" element={<PrivateRoute><RutinasRecomendadas /></PrivateRoute>} />
           <Route path="/ejercicios" element={<PrivateRoute><Ejercicios /></PrivateRoute>} />
           <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
 
           {/* Admin/Seed */}
           <Route path="/seed-admin-fs" element={<AdminRoute><SeedAdminFirestore /></AdminRoute>} />
+          <Route path="/seed-routines" element={<AdminRoute><SeedRoutinesFromJSON /></AdminRoute>} />
 
           {/* 404 */}
           <Route path="*" element={<Navigate to="/" replace />} />

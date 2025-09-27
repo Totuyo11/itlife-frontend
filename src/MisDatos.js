@@ -10,6 +10,10 @@ import {
   Timestamp,
   addDoc,
   collection,
+  getDocs,
+  query,
+  orderBy,
+  limit,
 } from "firebase/firestore";
 import { sendPasswordResetEmail } from "firebase/auth";
 import { auth, db } from "./firebase";
@@ -22,6 +26,19 @@ function Avatar({ name, email }) {
   return <div className="avatar big">{ch}</div>;
 }
 
+// --- helpers IMC ---
+function calcBMI(kg, m) {
+  if (!kg || !m || m <= 0) return null;
+  return +(kg / (m * m)).toFixed(1);
+}
+function bmiCategory(bmi) {
+  if (bmi == null) return { label: "—", cls: "" };
+  if (bmi < 18.5) return { label: "Bajo peso", cls: "bmi-low" };
+  if (bmi < 25) return { label: "Saludable", cls: "bmi-ok" };
+  if (bmi < 30) return { label: "Sobrepeso", cls: "bmi-mid" };
+  return { label: "Obesidad", cls: "bmi-high" };
+}
+
 export default function MisDatos() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -29,17 +46,19 @@ export default function MisDatos() {
   // Perfil
   const [displayName, setDisplayName] = useState("");
   const [goalWeight, setGoalWeight] = useState("");
+  const [heightM, setHeightM] = useState(""); // altura en metros (ej. 1.75)
   const [createdAt, setCreatedAt] = useState(null);
 
-  // Peso hoy
-  const [weightToday, setWeightToday] = useState("");
+  // Pesos
+  const [lastWeight, setLastWeight] = useState(null); // último peso guardado
+  const [weightToday, setWeightToday] = useState(""); // entrada de hoy (preview IMC)
 
   // Tema
   const [theme, setTheme] = useState(
     () => localStorage.getItem("fitlife:theme") || "dark"
   );
 
-  // Cargar perfil
+  // Cargar perfil + último peso
   useEffect(() => {
     if (!user) return;
     (async () => {
@@ -53,6 +72,7 @@ export default function MisDatos() {
         setGoalWeight(
           typeof d.goalWeight === "number" ? String(d.goalWeight) : ""
         );
+        setHeightM(typeof d.heightM === "number" ? String(d.heightM) : "");
         setCreatedAt(d.createdAt?.toDate?.() || null);
       } else {
         // crea doc mínimo
@@ -62,6 +82,18 @@ export default function MisDatos() {
         });
         setDisplayName(user.displayName || "");
         setCreatedAt(new Date());
+      }
+
+      // último peso (si hay)
+      const qW = query(
+        collection(db, "users", user.uid, "weights"),
+        orderBy("at", "desc"),
+        limit(1)
+      );
+      const wsnap = await getDocs(qW);
+      if (!wsnap.empty) {
+        const d = wsnap.docs[0].data();
+        if (typeof d.kg === "number") setLastWeight(d.kg);
       }
 
       setLoading(false);
@@ -98,6 +130,9 @@ export default function MisDatos() {
       const gw = Number(goalWeight);
       if (!Number.isNaN(gw) && gw > 0) payload.goalWeight = gw;
 
+      const hm = Number(heightM);
+      if (!Number.isNaN(hm) && hm > 0 && hm < 3) payload.heightM = hm; // 0–3 m por seguridad
+
       await updateDoc(uref, payload);
       alert("Perfil guardado ✅");
     } catch (err) {
@@ -117,6 +152,7 @@ export default function MisDatos() {
         kg,
         at: Timestamp.now(),
       });
+      setLastWeight(kg); // actualiza base para IMC
       setWeightToday("");
       alert("Peso guardado ✅");
     } catch (err) {
@@ -134,6 +170,11 @@ export default function MisDatos() {
       alert("No pudimos enviar el correo de reset.");
     }
   }
+
+  // ---- IMC (usa weightToday si hay, si no lastWeight) ----
+  const currentWeight = weightToday ? Number(weightToday) : lastWeight;
+  const bmi = calcBMI(currentWeight, Number(heightM));
+  const bmiInfo = bmiCategory(bmi);
 
   return (
     <div className="profile-wrap">
@@ -206,6 +247,23 @@ export default function MisDatos() {
               </small>
             </div>
 
+            <div className="rtn-row">
+              <label>Altura (m)</label>
+              <input
+                className="rtn-input"
+                type="number"
+                step="0.01"
+                min="0.3"
+                max="3"
+                placeholder="Ej. 1.75"
+                value={heightM}
+                onChange={(e) => setHeightM(e.target.value)}
+              />
+              <small className="profile-hint">
+                Ejemplos: 1.60, 1.75. Usamos altura para calcular tu IMC.
+              </small>
+            </div>
+
             <div className="rtn-actions">
               <button className="btn" type="submit" disabled={loading}>
                 Guardar perfil
@@ -221,9 +279,10 @@ export default function MisDatos() {
           </form>
         </div>
 
-        {/* Card de progreso rápido */}
+        {/* Card de progreso rápido + IMC */}
         <div className="profile-card">
           <h2 className="card-title">Progreso rápido</h2>
+
           <div className="rtn-row">
             <label>Peso de hoy (kg)</label>
             <input
@@ -235,17 +294,36 @@ export default function MisDatos() {
               onChange={(e) => setWeightToday(e.target.value)}
             />
           </div>
+
           <div className="rtn-actions">
             <button className="btn" onClick={registerWeightToday}>
               Guardar peso de hoy
             </button>
           </div>
 
+          {/* IMC */}
           <div className="divider" />
-          <p className="profile-note">
-            Tip: Actualizar tu peso seguido ayuda a ver mejor la tendencia en el
-            Dashboard 📈
-          </p>
+          <div className="bmi-card">
+            <div className="bmi-top">
+              <span className="bmi-title">IMC</span>
+              <span className={`bmi-chip ${bmiInfo.cls}`}>{bmiInfo.label}</span>
+            </div>
+            <div className="bmi-number">{bmi ?? "—"}</div>
+            <div className="bmi-foot">
+              {heightM
+                ? currentWeight
+                  ? `Cálculo con ${currentWeight} kg y ${heightM} m`
+                  : `Ingresa tu peso para calcular con ${heightM} m`
+                : "Ingresa tu altura para calcular IMC"}
+            </div>
+
+            <ul className="bmi-scale">
+              <li><span className="dot low" /> &lt; 18.5 Bajo peso</li>
+              <li><span className="dot ok" /> 18.5–24.9 Saludable</li>
+              <li><span className="dot mid" /> 25–29.9 Sobrepeso</li>
+              <li><span className="dot high" /> ≥ 30 Obesidad</li>
+            </ul>
+          </div>
         </div>
       </section>
     </div>

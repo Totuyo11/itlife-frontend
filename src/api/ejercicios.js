@@ -1,4 +1,4 @@
-// src/api/ejercicios.js
+
 import {
   addDoc, collection, deleteDoc, doc, onSnapshot,
   query, updateDoc, serverTimestamp

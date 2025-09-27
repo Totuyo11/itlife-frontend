@@ -1394,3 +1394,34 @@ body {
 
 /* Light tweaks */
 :root[data-theme="light"] .profile-card { background: rgba(255,255,255,.9); }
+/* ===== IMC (BMI) ===== */
+.bmi-card { display: grid; gap: 8px; }
+.bmi-top { display: flex; align-items: center; justify-content: space-between; }
+.bmi-title { color: #e5e7eb; font-weight: 700; }
+.bmi-number {
+  font-size: 2.2rem; font-weight: 900; color: #fff;
+  text-shadow: 0 0 12px rgba(255,64,129,.25);
+}
+.bmi-foot { color: #94a3b8; font-size: .92rem; }
+
+.bmi-chip {
+  padding: 4px 10px; border-radius: 999px; font-weight: 800; color: #fff;
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15);
+}
+.bmi-chip.bmi-low  { background: rgba(59,130,246,.18); border-color: rgba(59,130,246,.5); }
+.bmi-chip.bmi-ok   { background: rgba(34,197,94,.18); border-color: rgba(34,197,94,.5); }
+.bmi-chip.bmi-mid  { background: rgba(250,204,21,.18); border-color: rgba(250,204,21,.5); }
+.bmi-chip.bmi-high { background: rgba(239,68,68,.18); border-color: rgba(239,68,68,.5); }
+
+.bmi-scale { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; color: #cbd5e1; font-size: .92rem; }
+.bmi-scale .dot {
+  display: inline-block; width: 10px; height: 10px; border-radius: 999px; margin-right: 8px;
+  box-shadow: 0 0 8px rgba(255,255,255,.15);
+}
+.bmi-scale .dot.low  { background: #3b82f6; }
+.bmi-scale .dot.ok   { background: #22c55e; }
+.bmi-scale .dot.mid  { background: #f59e0b; }
+.bmi-scale .dot.high { background: #ef4444; }
+
+/* Light tweaks */
+:root[data-theme="light"] .bmi-number { color: #0f172a; text-shadow: none; }

@@ -1,4 +1,4 @@
-// src/api/rutinas.js
+
 import {
   addDoc, collection, deleteDoc, doc, onSnapshot,
   query, updateDoc, getDocs, setDoc, serverTimestamp

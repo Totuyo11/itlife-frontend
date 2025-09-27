@@ -43,7 +43,6 @@ export default function Navbar() {
   const [theme, setTheme] = useState(() => {
     const stored = readStoredTheme();
     const initial = stored || getSystemPref() || 'dark';
-    // aplica de inmediato para evitar “flash”
     if (typeof document !== 'undefined') applyThemeAttr(initial);
     return initial;
   });
@@ -101,9 +100,11 @@ export default function Navbar() {
     storeTheme(next);
   }
 
+  // 🔹 Links (agregué Recomendadas)
   const links = [
     { to: '/', label: 'Inicio', public: true },
     { to: '/rutina', label: 'Rutinas', private: true },
+    { to: '/recomendadas', label: 'Recomendadas', private: true }, // ← nuevo
     { to: '/ejercicios', label: 'Ejercicios', private: true },
     { to: '/dashboard', label: 'Progreso', private: true },
   ];
@@ -122,7 +123,7 @@ export default function Navbar() {
       <div className="navbar-inner">
         {/* Brand */}
         <NavLink to="/" className="brand">
-          <span className="brand-icon">🏋️</span>
+          <span className="brand-icon">Fl</span>
           <span className="brand-text">FitLife</span>
         </NavLink>
 

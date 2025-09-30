@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import { db } from "./firebase";
 import { collection, addDoc } from "firebase/firestore";
+import { useAuth } from "./AuthContext";
 
 const samples = [
   {
@@ -91,15 +92,28 @@ const samples = [
 ];
 
 export default function SeedRoutines() {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
 
   const seed = async () => {
+    if (!user) {
+      alert("Inicia sesión primero");
+      return;
+    }
     setLoading(true);
-    const col = collection(db, "routines");
-    for (const r of samples) await addDoc(col, r);
-    setDone(true);
-    setLoading(false);
+    try {
+      const col = collection(db, "users", user.uid, "routines");
+      for (const r of samples) {
+        await addDoc(col, r);
+      }
+      setDone(true);
+    } catch (err) {
+      console.error(err);
+      alert("Error al cargar ejemplos");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -109,7 +123,7 @@ export default function SeedRoutines() {
         <button disabled={loading} onClick={seed}>
           {loading ? "Cargando..." : "Cargar ejemplos"}
         </button>
-        {done && <p>✅ Listo: rutinas cargadas.</p>}
+        {done && <p>✅ Listo: rutinas cargadas en tu cuenta.</p>}
       </div>
     </div>
   );

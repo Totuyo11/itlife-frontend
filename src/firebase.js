@@ -1,18 +1,15 @@
 // src/firebase.js
 import { initializeApp } from "firebase/app";
 
-// 🔎 Analytics solo si el entorno lo soporta (evita errores en SSR/build)
+// 🔎 Analytics (opcional, solo si el navegador lo soporta)
 import { getAnalytics, isSupported as analyticsIsSupported } from "firebase/analytics";
 
 import { getAuth, browserLocalPersistence, setPersistence } from "firebase/auth";
-import { 
-  getFirestore, 
-  enableIndexedDbPersistence 
-} from "firebase/firestore";
+import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore";
 import { getDatabase } from "firebase/database";
 import { getStorage } from "firebase/storage";
 
-// ⚙️ Tu config
+// ⚙️ Configuración Firebase (puedes mover a .env.local si prefieres)
 const firebaseConfig = {
   apiKey: "AIzaSyCKHP9tTq7qo5X_5rR73xeq64OkxVrxXXM",
   authDomain: "fitlife-fb0e9.firebaseapp.com",
@@ -24,62 +21,49 @@ const firebaseConfig = {
   measurementId: "G-Y0HMZL1H4T",
 };
 
-// 🚀 Inicializa
+// 🚀 Inicializa app
 export const app = initializeApp(firebaseConfig);
 
-// 📈 Analytics (opcional, protegido)
+// 📊 Analytics (no rompe si no está disponible)
 export let analytics = null;
 (async () => {
   try {
-    if (typeof window !== "undefined" && await analyticsIsSupported()) {
+    if (typeof window !== "undefined" && (await analyticsIsSupported())) {
       analytics = getAnalytics(app);
     }
-  } catch (e) {
-    // No pasa nada si falla (navegador no soportado, modo privado, etc.)
-    // console.warn("Analytics no disponible:", e);
+  } catch {
+    // No pasa nada si falla (modo incógnito, navegador no soportado, etc.)
   }
 })();
 
 // 🔐 Auth
 export const auth = getAuth(app);
-// Persitencia local (permite mantener sesión en recargas)
-setPersistence(auth, browserLocalPersistence).catch(() => {
-  // Si falla, Auth usa la persistencia por defecto (in-memory)
-});
+// Mantiene la sesión en recargas (si falla usa memoria)
+setPersistence(auth, browserLocalPersistence).catch(() => {});
 
 // 🗃️ Firestore
 export const db = getFirestore(app);
-
-// Habilita cache offline (opcional pero recomendado)
-enableIndexedDbPersistence(db).catch((err) => {
-  // Si hay varias pestañas abiertas, puede fallar con code "failed-precondition"
-  // o si el navegador no soporta IndexedDB ("unimplemented").
-  // No es crítico; simplemente no habrá cache offline.
-  // console.warn("Firestore offline no habilitado:", err.code || err);
+enableIndexedDbPersistence(db).catch(() => {
+  // Si falla (multi-pestaña o no soportado), sigue funcionando sin cache offline
 });
 
-// 🟢 Realtime Database (si lo usas)
+// 🟢 Realtime Database (opcional)
 export const rtdb = getDatabase(app);
 
 // 📦 Storage
 export const storage = getStorage(app);
 
 /* =============================
-   🧪 Emuladores (opcional)
-   Descomenta esto cuando desarrolles en local
+   🧪 Emuladores (solo en local)
 ================================ */
 // import { connectAuthEmulator } from "firebase/auth";
 // import { connectFirestoreEmulator } from "firebase/firestore";
 // import { connectDatabaseEmulator } from "firebase/database";
 // import { connectStorageEmulator } from "firebase/storage";
 
-// if (typeof window !== "undefined" && window.location.hostname === "localhost") {
-//   try {
-//     connectAuthEmulator(auth, "http://localhost:9099");
-//     connectFirestoreEmulator(db, "localhost", 8080);
-//     connectDatabaseEmulator(rtdb, "localhost", 9000);
-//     connectStorageEmulator(storage, "localhost", 9199);
-//   } catch (e) {
-//     // Evita reconectar si ya estaban conectados
-//   }
+// if (window.location.hostname === "localhost") {
+//   connectAuthEmulator(auth, "http://localhost:9099");
+//   connectFirestoreEmulator(db, "localhost", 8080);
+//   connectDatabaseEmulator(rtdb, "localhost", 9000);
+//   connectStorageEmulator(storage, "localhost", 9199);
 // }

@@ -1,36 +1,52 @@
-import React, { lazy, Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { AuthProvider, useAuth } from './AuthContext';
-import { ThemeProvider } from './theme';
-import { ToastProvider } from './useToast';
+// src/App.js
+import React, { Suspense, lazy } from "react";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+  useLocation,
+} from "react-router-dom";
 
-// ✅ Lazy imports (mejor performance)
-const Navbar = lazy(() => import('./Navbar'));
-const Home = lazy(() => import('./Home'));
-const Login = lazy(() => import('./Login'));
-const Register = lazy(() => import('./Register'));
-const MisDatos = lazy(() => import('./MisDatos'));
-const Rutinas = lazy(() => import('./pages/Rutinas'));
-const Ejercicios = lazy(() => import('./Ejercicios'));
-const Dashboard = lazy(() => import('./pages/Dashboard'));
-const SeedAdminFirestore = lazy(() => import('./SeedAdminFirestore'));
+import { AuthProvider, useAuth } from "./AuthContext";
+import { ThemeProvider } from "./theme";
+import { ToastProvider } from "./useToast";
 
-// 🔹 NUEVO: seed desde JSON (routines.json)
-const SeedRoutinesFromJSON = lazy(() => import('./SeedRoutinesFromJSON'));
+// === IMPORTS DIRECTOS (evitan el error en /login y /register) ===
+import Navbar from "./Navbar";
+import Home from "./Home";
+import Login from "./Login";
+import Register from "./Register";
+import MisDatos from "./MisDatos";
+import Ejercicios from "./Ejercicios";
 
-// 🔹 NUEVO: Recomendador de rutinas (Opción 1)
-const RutinasRecomendadas = lazy(() => import('./pages/RutinasRecomendadas'));
+// === LAZY SOLO EN PÁGINAS PESADAS QUE EXISTEN ===
+// Asegúrate de que estos archivos existen y exportan `export default`
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Rutinas = lazy(() => import("./services/Rutinas")); // <- ruta real
+const Recomendadas = lazy(() => import("./pages/RutinasRecomendadas")); // <- ruta real
+const SeedAdminFirestore = lazy(() => import("./SeedAdminFirestore"));
+const SeedRoutinesFromJSON = lazy(() => import("./SeedRoutinesFromJSON"));
 
-// (Opcional) reset de contraseña si lo tienes/crearás
-const ResetPassword = lazy(() => import('./ResetPassword').catch(() => ({ default: () => (
-  <div className="registro-container"><div className="form-box"><h2>Recuperar contraseña</h2>
-    <p>Componente no implementado aún.</p></div></div>
-) })));
+// Si aún no tienes ResetPassword, usa un componente simple:
+function ResetPasswordFallback() {
+  return (
+    <div className="registro-container">
+      <div className="form-box">
+        <h2>Recuperar contraseña</h2>
+        <p>Componente no implementado aún.</p>
+      </div>
+    </div>
+  );
+}
+const ResetPassword = ResetPasswordFallback;
 
-// =============== Helpers de Rutas ===============
+// ===== Helpers =====
 function ScrollToTop() {
   const { pathname } = useLocation();
-  React.useEffect(() => { window.scrollTo({ top: 0, behavior: 'smooth' }); }, [pathname]);
+  React.useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [pathname]);
   return null;
 }
 
@@ -45,34 +61,29 @@ function LoadingScreen() {
   );
 }
 
-// 🔐 Ruta privada (requiere sesión)
+// Rutas protegidas
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   return user ? children : <Navigate to="/login" replace />;
 }
-
-// 🚪 Sólo pública (si ya hay sesión → redirige al dashboard)
 function PublicOnlyRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   return user ? <Navigate to="/dashboard" replace /> : children;
 }
 
-// 🛡️ Admin/Seed protegido
-const ALLOWED_ADMINS = [
-  "XbuiurTJjLRMZpKojLRyC1d0dRa2" // ✅ tu UID
-];
+// Admin
+const ALLOWED_ADMINS = ["XbuiurTJjLRMZpKojLRyC1d0dRa2"];
 function AdminRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
-  const isAllowed = ALLOWED_ADMINS.includes(user.uid);
-  return isAllowed ? children : <Navigate to="/dashboard" replace />;
+  return ALLOWED_ADMINS.includes(user.uid) ? children : <Navigate to="/dashboard" replace />;
 }
 
-// Ocultar Navbar en rutas de auth
-const AUTH_PATHS = new Set(['/login', '/register', '/reset']);
+// Ocultar navbar en auth
+const AUTH_PATHS = new Set(["/login", "/register", "/reset"]);
 
 function AppShell() {
   const location = useLocation();
@@ -86,20 +97,90 @@ function AppShell() {
         <Routes>
           {/* Públicas */}
           <Route path="/" element={<Home />} />
-          <Route path="/login" element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
-          <Route path="/register" element={<PublicOnlyRoute><Register /></PublicOnlyRoute>} />
-          <Route path="/reset" element={<PublicOnlyRoute><ResetPassword /></PublicOnlyRoute>} />
+          <Route
+            path="/login"
+            element={
+              <PublicOnlyRoute>
+                <Login />
+              </PublicOnlyRoute>
+            }
+          />
+          <Route
+            path="/register"
+            element={
+              <PublicOnlyRoute>
+                <Register />
+              </PublicOnlyRoute>
+            }
+          />
+          <Route
+            path="/reset"
+            element={
+              <PublicOnlyRoute>
+                <ResetPassword />
+              </PublicOnlyRoute>
+            }
+          />
 
           {/* Privadas */}
-          <Route path="/misdatos" element={<PrivateRoute><MisDatos /></PrivateRoute>} />
-          <Route path="/rutina" element={<PrivateRoute><Rutinas /></PrivateRoute>} />
-          <Route path="/recomendadas" element={<PrivateRoute><RutinasRecomendadas /></PrivateRoute>} />
-          <Route path="/ejercicios" element={<PrivateRoute><Ejercicios /></PrivateRoute>} />
-          <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+          <Route
+            path="/misdatos"
+            element={
+              <PrivateRoute>
+                <MisDatos />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/rutina"
+            element={
+              <PrivateRoute>
+                <Rutinas />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/recomendadas"
+            element={
+              <PrivateRoute>
+                <Recomendadas />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/ejercicios"
+            element={
+              <PrivateRoute>
+                <Ejercicios />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <PrivateRoute>
+                <Dashboard />
+              </PrivateRoute>
+            }
+          />
 
-          {/* Admin/Seed */}
-          <Route path="/seed-admin-fs" element={<AdminRoute><SeedAdminFirestore /></AdminRoute>} />
-          <Route path="/seed-routines" element={<AdminRoute><SeedRoutinesFromJSON /></AdminRoute>} />
+          {/* Admin */}
+          <Route
+            path="/seed-admin-fs"
+            element={
+              <AdminRoute>
+                <SeedAdminFirestore />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/seed-routines"
+            element={
+              <AdminRoute>
+                <SeedRoutinesFromJSON />
+              </AdminRoute>
+            }
+          />
 
           {/* 404 */}
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -109,7 +190,7 @@ function AppShell() {
   );
 }
 
-function App() {
+export default function App() {
   return (
     <AuthProvider>
       <Router>
@@ -122,5 +203,3 @@ function App() {
     </AuthProvider>
   );
 }
-
-export default App;

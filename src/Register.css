@@ -1425,3 +1425,70 @@ body {
 
 /* Light tweaks */
 :root[data-theme="light"] .bmi-number { color: #0f172a; text-shadow: none; }
+/* src/Register.css (agregar al final) */
+
+.rtn-card {
+  background: #1a1a2e;
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  transition: transform 0.2s ease;
+}
+.rtn-card:hover {
+  transform: translateY(-4px);
+}
+
+.rtn-card-title {
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #fff;
+}
+
+.rtn-badges {
+  margin: 8px 0;
+}
+.pill {
+  display: inline-block;
+  padding: 4px 10px;
+  margin: 2px;
+  background: #ff2e63;
+  color: #fff;
+  border-radius: 20px;
+  font-size: 0.8rem;
+}
+
+.rtn-items {
+  margin-top: 8px;
+  font-size: 0.9rem;
+  color: #ccc;
+}
+.rtn-item {
+  margin: 2px 0;
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+.modal {
+  background: #1a1a2e;
+  padding: 20px;
+  border-radius: 16px;
+  max-width: 480px;
+  width: 90%;
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+}
+.modal-title {
+  font-size: 1.4rem;
+  font-weight: bold;
+  margin-bottom: 12px;
+}
+.modal-body {
+  font-size: 0.95rem;
+  margin-bottom: 16px;
+}

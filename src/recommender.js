@@ -5,12 +5,41 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 
-// ---------- Helpers ----------
+/* =========================================================
+   🔌 Resolver de API (útil para otras pantallas)
+   Prioridad:
+   1) localStorage.fitlife_api_url
+   2) process.env.REACT_APP_API_URL
+   3) http://<hostname>:8000
+   ========================================================= */
+export const API_URL = (() => {
+  try {
+    const ls = (localStorage.getItem("fitlife_api_url") || "").trim();
+    if (ls) return ls;
+  } catch {}
+  if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
+  if (typeof window !== "undefined" && window.location?.hostname) {
+    return `http://${window.location.hostname}:8000`;
+  }
+  // fallback final
+  return "http://127.0.0.1:8000";
+})();
+
+// Permite cambiar la URL sin recompilar (se guarda en localStorage)
+export function setApiUrl(url) {
+  if (!url || typeof url !== "string") return API_URL;
+  try {
+    localStorage.setItem("fitlife_api_url", url.trim());
+  } catch {}
+  return url.trim();
+}
+
+/* ============== Helpers ============== */
 function normStr(v, d = "") { return typeof v === "string" ? v : d; }
 function normNum(v, d = null) { return typeof v === "number" ? v : d; }
 function normArr(a, d = []) { return Array.isArray(a) ? a : d; }
 
-// Asegura que cada rutina tenga los campos que usamos en UI/score
+/* Asegura que cada rutina tenga los campos que usamos en UI/score */
 function normalizeRoutine(r) {
   return {
     id: r.id,
@@ -155,7 +184,7 @@ export async function logSession({ uid, routine, minutes }) {
   }
 }
 
-// ---------- Validación para la página /Rutinas ----------
+/* ---------- Validación para la página /Rutinas ---------- */
 export function validarInputs(inp = {}) {
   const errs = [];
   const isInt = (v) => Number.isInteger(v);
@@ -167,9 +196,9 @@ export function validarInputs(inp = {}) {
   return errs;
 }
 
-// ==========================================================
-//  Genera un planSemanal base (con ejercicios y esquemas)
-// ==========================================================
+/* ==========================================================
+   Genera un planSemanal base (con ejercicios y esquemas)
+   ========================================================== */
 export function generarRutina({
   objetivo = 1,
   dificultad = 1,

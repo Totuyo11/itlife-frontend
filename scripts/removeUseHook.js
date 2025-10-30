@@ -1,57 +1,42 @@
-// scripts/removeUseHook.js
-const fs = require('fs');
-const path = require('path');
+/**
+ * Limpieza automática de imports inválidos de React.
+ * Busca variantes de "" o "".
+ */
+const fs = require("fs");
+const path = require("path");
 
-const exts = new Set(['.js', '.jsx', '.ts', '.tsx']);
-const root = process.cwd();
+const targetDir = path.resolve(__dirname, "..");
 
-function walk(dir, files = []) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const p = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name === 'node_modules' || entry.name.startsWith('.git')) continue;
-      walk(p, files);
-    } else {
-      if (exts.has(path.extname(p))) files.push(p);
+function walk(dir) {
+  let results = [];
+  fs.readdirSync(dir).forEach((file) => {
+    const fullPath = path.join(dir, file);
+    const stat = fs.statSync(fullPath);
+    if (stat.isDirectory() && !fullPath.includes("node_modules")) {
+      results = results.concat(walk(fullPath));
+    } else if (/\.(js|jsx|ts|tsx)$/.test(fullPath)) {
+      results.push(fullPath);
     }
-  }
-  return files;
-}
-
-function fixContent(src) {
-  let c = src;
-
-  // IMPORTS desde react - elimina el token 'use' (con/sin alias), soporta multilínea
-  const importPattern = /import\s*{\s*([^}]*)\s*}\s*from\s*['"]react['"]/gms;
-  c = c.replace(importPattern, (_, inside) => {
-    const names = inside.split(',').map(s => s.trim()).filter(Boolean);
-    const filtered = names.filter(n => !/^use(\s+as\s+\w+)?$/i.test(n));
-    if (filtered.length === 0) return `import React from 'react'`;
-    return `import { ${filtered.join(', ')} } from 'react'`;
   });
-
-  // RE-EXPORTS desde react - quita 'use'; si queda vacío, elimina la línea
-  const exportPattern = /export\s*{\s*([^}]*)\s*}\s*from\s*['"]react['"]\s*;?/gms;
-  c = c.replace(exportPattern, (_, inside) => {
-    const names = inside.split(',').map(s => s.trim()).filter(Boolean);
-    const filtered = names.filter(n => !/^use(\s+as\s+\w+)?$/i.test(n));
-    if (filtered.length === 0) return '';
-    return `export { ${filtered.join(', ')} } from 'react'`;
-  });
-
-  return c;
+  return results;
 }
 
-const files = walk(root);
-let changed = 0;
+const files = walk(targetDir);
+let modifiedCount = 0;
 
-for (const file of files) {
-  let src = fs.readFileSync(file, 'utf8');
-  const fixed = fixContent(src);
-  if (fixed !== src) {
-    fs.writeFileSync(file, fixed, 'utf8');
-    changed++;
+files.forEach((file) => {
+  let content = fs.readFileSync(file, "utf8");
+  const fixed = content.replace(
+    /import\s*\{\s*use\s*\}\s*from\s*['"]react['"];?/g,
+    ""
+  );
+  if (fixed !== content) {
+    fs.writeFileSync(file, fixed, "utf8");
+    console.log(`[✔] Limpiado: ${file}`);
+    modifiedCount++;
   }
-}
+});
 
-console.log(`[prebuild] Limpieza de '{ use }' completada. Archivos modificados: ${changed}`);
+console.log(
+  `[prebuild] Limpieza completada. Archivos modificados: ${modifiedCount}`
+);

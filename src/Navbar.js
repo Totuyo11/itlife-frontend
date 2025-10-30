@@ -153,7 +153,7 @@ export default function Navbar() {
             title={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
             onClick={toggleTheme}
           >
-            {theme === 'dark' ? '☀️' : '🌙'}
+            {theme === 'dark' ? 'asd' : '🌙'}
           </button>
 
           {loading ? null : user ? (

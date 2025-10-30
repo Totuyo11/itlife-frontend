@@ -67,3 +67,4 @@ export const storage = getStorage(app);
 //   connectDatabaseEmulator(rtdb, "localhost", 9000);
 //   connectStorageEmulator(storage, "localhost", 9199);
 // }
+

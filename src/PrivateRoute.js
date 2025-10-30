@@ -11,3 +11,4 @@ export default function PrivateRoute({ children }) {
   if (!user) return <Navigate to="/login" replace state={{ from: loc }} />;
   return children;
 }
+

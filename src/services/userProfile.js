@@ -21,3 +21,4 @@ export async function updateGoalWeight(uid, kg) {
   if (Number.isNaN(val) || val <= 0) throw new Error("Meta inválida");
   await setDoc(ref, { goalWeight: val }, { merge: true });
 }
+

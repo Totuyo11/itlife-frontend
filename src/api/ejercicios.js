@@ -31,3 +31,4 @@ export async function actualizarEjercicio(uid, id, patch) {
 export async function borrarEjercicio(uid, id) {
   await deleteDoc(doc(db, "ejercicios", uid, "items", id));
 }
+

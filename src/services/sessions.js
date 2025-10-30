@@ -19,3 +19,4 @@ export async function addQuickSession(uid, data) {
   };
   await addDoc(collection(db, "users", uid, "sessions"), payload);
 }
+

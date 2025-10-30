@@ -266,3 +266,4 @@ export function generarRutina({
 
   return { planSemanal };
 }
+

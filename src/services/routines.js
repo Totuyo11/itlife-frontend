@@ -57,3 +57,4 @@ export const updateRoutine = (uid, routineId, payload) => {
 export const deleteRoutine = (uid, routineId) => {
   return deleteDoc(doc(db, "users", uid, "routines", routineId));
 };
+

@@ -66,3 +66,4 @@ export default function GoalWeightCard({ uid, goalWeight, ultimoPeso }) {
     </div>
   );
 }
+

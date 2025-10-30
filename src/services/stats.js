@@ -265,3 +265,4 @@ export async function setUserGoal(uid, kg) {
   const userRef = doc(db, "users", uid);
   await updateDoc(userRef, { goalWeight: kg });
 }
+

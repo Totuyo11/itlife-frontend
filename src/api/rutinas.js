@@ -50,3 +50,4 @@ export async function getAsignacionesPorRango(uid, startISO, endISO) {
   return snap.docs.map(d => ({ id: d.id, ...d.data() }))
     .filter(d => d.id >= startISO && d.id <= endISO);
 }
+

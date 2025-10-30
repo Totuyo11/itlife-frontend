@@ -247,7 +247,7 @@ export default function Rutinas() {
   return (
     <div className="rtn-wrap">
       <header className="rtn-hero">
-        <h1 className="rtn-title">🧠 Rutinas</h1>
+        <h1 className="rtn-title"> Rutinas</h1>
         <p className="rtn-sub">
           Crea planes enfocados y organízalos por ejercicios.{" "}
           <span className="pill">Uno por línea</span>

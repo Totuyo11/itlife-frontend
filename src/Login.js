@@ -1,8 +1,9 @@
+// src/pages/Login.jsx
 import React, { useState } from 'react';
 import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 import { Link, useNavigate } from 'react-router-dom';
-import './Register.css';
-import hero from './assets/fitlife-hero.jpg'; // 👈 importa la imagen
+import './Login.css';               // ← usa tu CSS (puede ser el que enviaste)
+import hero from './assets/fitlife-hero.jpg'; // ← ajusta la ruta si cambia
 
 const mapError = (code) => {
   switch (code) {
@@ -24,12 +25,28 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
+  function validar() {
+    if (!correo.trim() || !contraseña) {
+      setError('❌ Completa correo y contraseña.');
+      return false;
+    }
+    // validación simple de email
+    const re = /\S+@\S+\.\S+/;
+    if (!re.test(correo.trim())) {
+      setError('❌ Correo inválido.');
+      return false;
+    }
+    return true;
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError(''); setMensaje('');
+    if (!validar()) return;
+
     setLoading(true);
-    const auth = getAuth();
     try {
+      const auth = getAuth();
       await signInWithEmailAndPassword(auth, correo.trim(), contraseña);
       setMensaje('✅ ¡Bienvenido de nuevo!');
       setTimeout(() => navigate('/dashboard'), 400);
@@ -42,7 +59,7 @@ export default function Login() {
 
   return (
     <div className="auth-layout">
-      {/* Panel lateral con imagen */}
+      {/* Panel lateral con imagen y brillos */}
       <aside
         className="auth-aside"
         style={{
@@ -50,7 +67,9 @@ export default function Login() {
             radial-gradient(1200px 600px at -10% -10%, rgba(255,64,129,.25), transparent 60%),
             radial-gradient(800px 400px at 110% 110%, rgba(109,40,217,.25), transparent 55%),
             url(${hero})
-          `
+          `,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center'
         }}
       >
         <div className="aside-overlay">
@@ -114,8 +133,9 @@ export default function Login() {
                   className="toggle-pass"
                   onClick={() => setShowPass(s => !s)}
                   aria-label={showPass ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  disabled={loading}
                 >
-                  {showPass ? '🙈' : '👁️'}
+                  {showPass ? 'No Mostrar' : 'Mostrar'}
                 </button>
               </div>
 
@@ -123,13 +143,21 @@ export default function Login() {
                 {loading ? 'Entrando…' : 'Entrar'}
               </button>
 
-              {mensaje && <p className="mensaje ok">{mensaje}</p>}
-              {error && <p className="mensaje error">{error}</p>}
+              {mensaje && <p className="mensaje ok" role="status">{mensaje}</p>}
+              {error && <p className="mensaje error" role="alert">{error}</p>}
 
               <div className="extras">
                 <Link to="/reset" className="link">¿Olvidaste tu contraseña?</Link>
                 <span className="sep">•</span>
-                <Link to="/register" className="link">Crear cuenta</Link>
+                {/* Usamos botón-as-link para evitar cualquier overlay que bloquee el click */}
+                <button
+                  type="button"
+                  className="link as-button"
+                  onClick={() => navigate('/register')}
+                  aria-label="Crear cuenta nueva"
+                >
+                  Crear cuenta
+                </button>
               </div>
 
               <p className="legal">Al continuar, aceptas nuestros Términos y Política.</p>
@@ -140,4 +168,3 @@ export default function Login() {
     </div>
   );
 }
-

@@ -150,7 +150,7 @@ export default function Register() {
                   disabled={loading}
                 />
                 <button type="button" className="toggle-pass" onClick={() => setShowPass(s => !s)}>
-                  {showPass ? '🙈' : '👁️'}
+                  {showPass ? 'No mostrar' : 'Mostrar'}
                 </button>
               </div>
 
@@ -173,7 +173,7 @@ export default function Register() {
                   disabled={loading}
                 />
                 <button type="button" className="toggle-pass" onClick={() => setShowPass2(s => !s)}>
-                  {showPass2 ? '🙈' : '👁️'}
+                  {showPass2 ? 'No Mostrar' : 'Mostrar'}
                 </button>
               </div>
 

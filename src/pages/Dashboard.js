@@ -1,31 +1,35 @@
 // src/pages/Dashboard.js
 import React, { useEffect, useMemo, useState } from "react";
 import "./../Register.css";
+
 import {
   ResponsiveContainer,
-  LineChart,
   CartesianGrid,
   XAxis,
   YAxis,
   Tooltip,
+  RadialBarChart,
+  RadialBar,
+  PolarAngleAxis,
+  LineChart,
   Line,
-  BarChart,
-  Bar,
 } from "recharts";
+
 import { useAuth } from "../AuthContext";
 import Achievements from "../components/Achievements";
 import QuickSession from "../components/QuickSession";
-import GoalWeightCard from "../components/GoalWeightCard";               // ✅ NUEVO
+import GoalWeightCard from "../components/GoalWeightCard";
+import { toast } from "react-toastify";
 
-// servicios
 import {
   listenUserDashboard,
   syncAchievements,
   buildBadges,
+  addWeight,
 } from "../services/stats";
-import { subscribeGoalWeight } from "../services/userProfile";          // ✅ NUEVO
+import { subscribeGoalWeight } from "../services/userProfile";
 
-// --- helpers para mock inicial ---
+// Mock inicial por si no hay usuario
 function makeLastNDays(n = 14) {
   const out = [];
   const now = new Date();
@@ -35,7 +39,6 @@ function makeLastNDays(n = 14) {
     out.push({
       fecha: d.toLocaleDateString("es-MX", { day: "2-digit", month: "short" }),
       peso: null,
-      volumen: Math.random() > 0.6 ? Math.floor(Math.random() * 100) + 20 : null,
     });
   }
   return out;
@@ -44,16 +47,29 @@ function makeLastNDays(n = 14) {
 export default function Dashboard() {
   const { user } = useAuth();
 
-  // estado principal
-  const [serie, setSerie] = useState(() => makeLastNDays(14));
-  const [stats, setStats] = useState({ sesiones7d: 0, rachaActiva: 0, ultimoPeso: null });
+  // KPIs
+  const [stats, setStats] = useState({
+    sesiones7d: 0,
+    rachaActiva: 0,
+    ultimoPeso: null,
+  });
+
+  // Logros
   const [achDoc, setAchDoc] = useState(null);
   const [badges, setBadges] = useState([]);
 
-  // ✅ meta de peso
+  // Meta de peso
   const [goalWeight, setGoalWeight] = useState(null);
 
-  // tema para colores del chart
+  // Datasets para gráficas solicitadas
+  const [todayMinutes, setTodayMinutes] = useState(0);
+  const [weightLineDaily, setWeightLineDaily] = useState(makeLastNDays(14));
+
+  // Form para registrar peso de hoy
+  const [pesoHoy, setPesoHoy] = useState("");
+  const [savingPeso, setSavingPeso] = useState(false);
+
+  // Tema
   const readTheme = () =>
     document.documentElement.getAttribute("data-theme") || "dark";
   const [theme, setTheme] = useState(readTheme());
@@ -64,36 +80,19 @@ export default function Dashboard() {
         text: "#1e293b",
         grid: "#cbd5e1",
         line: "#ff4081",
-        barFill: "#6366f1",
         tooltipBg: "#f8fafc",
         tooltipBorder: "#94a3b8",
-        heat: [
-          "rgba(255,255,255,.3)",
-          "rgba(255,64,129,.25)",
-          "rgba(255,64,129,.45)",
-          "rgba(255,64,129,.65)",
-          "rgba(255,64,129,.85)",
-        ],
       };
     }
     return {
       text: "#e2e8f0",
       grid: "#334155",
       line: "#ff4081",
-      barFill: "#60a5fa",
       tooltipBg: "#0f172a",
       tooltipBorder: "#475569",
-      heat: [
-        "rgba(255,255,255,.15)",
-        "rgba(255,64,129,.25)",
-        "rgba(255,64,129,.45)",
-        "rgba(255,64,129,.65)",
-        "rgba(255,64,129,.85)",
-      ],
     };
   }, [theme]);
 
-  // observa cambio de tema
   useEffect(() => {
     const el = document.documentElement;
     const mo = new MutationObserver(() => setTheme(readTheme()));
@@ -101,42 +100,55 @@ export default function Dashboard() {
     return () => mo.disconnect();
   }, []);
 
-  // suscripción realtime si hay usuario; si no, mock
   useEffect(() => {
     if (!user) {
-      // mock local
-      setSerie(makeLastNDays(14));
       setStats({ sesiones7d: 0, rachaActiva: 0, ultimoPeso: null });
       setAchDoc(null);
       setBadges([]);
       setGoalWeight(null);
+      setTodayMinutes(0);
+      setWeightLineDaily(makeLastNDays(14));
       return;
     }
 
-    // 1) dashboard (weights/sessions/achievements)
-    const unsub = listenUserDashboard(user.uid, ({ series, stats, achievementsDoc }) => {
-      setSerie(series);
-      setStats(stats);
+    const unsub = listenUserDashboard(user.uid, (payload) => {
+      const { stats, achievementsDoc, todayMinutes, weightLineDaily } = payload;
+      setStats(stats || { sesiones7d: 0, rachaActiva: 0, ultimoPeso: null });
       setAchDoc(achievementsDoc || null);
+      setTodayMinutes(todayMinutes ?? 0);
+      setWeightLineDaily(weightLineDaily || makeLastNDays(14));
 
-      // ⚠️ usa goalWeight más reciente del estado
-      setBadges(buildBadges(stats, achievementsDoc, goalWeight));
-      // sincroniza logros (incluye meta si aplica)
-      syncAchievements(user.uid, stats, goalWeight).catch(() => {});
+      setBadges(buildBadges(stats || {}, achievementsDoc, goalWeight));
+      syncAchievements(user.uid, stats || {}, goalWeight).catch(() => {});
     });
 
-    // 2) meta de peso
     const unsubGoal = subscribeGoalWeight(user.uid, ({ goalWeight }) => {
       setGoalWeight(goalWeight ?? null);
-      // recalcula badges con meta actual
       setBadges((prev) => buildBadges(stats, achDoc, goalWeight ?? null));
-      // re-sincroniza logro de meta si aplica
       syncAchievements(user.uid, stats, goalWeight ?? null).catch(() => {});
     });
 
-    return () => { unsub && unsub(); unsubGoal && unsubGoal(); };
-    // ✅ dependencia en goalWeight para que el callback use la meta vigente
-  }, [user, goalWeight]); 
+    return () => {
+      if (unsub) unsub();
+      if (unsubGoal) unsubGoal();
+    };
+  }, [user, goalWeight, stats, achDoc]);
+
+  async function handleSavePeso(e) {
+    e.preventDefault();
+    if (!user || !pesoHoy) return;
+    try {
+      setSavingPeso(true);
+      await addWeight(user.uid, Number(pesoHoy), new Date());
+      setPesoHoy("");
+      toast.success("✅ Peso guardado correctamente");
+    } catch (err) {
+      console.error(err);
+      toast.error("❌ No se pudo guardar el peso");
+    } finally {
+      setSavingPeso(false);
+    }
+  }
 
   return (
     <div className="dash-wrap">
@@ -159,11 +171,13 @@ export default function Dashboard() {
           <div className="dash-kpi-value">
             {stats.ultimoPeso != null ? `${stats.ultimoPeso} kg` : "—"}
           </div>
-          <div className="dash-kpi-foot">Actualiza al finalizar sesión</div>
+          <div className="dash-kpi-foot">
+            {goalWeight ? `Meta: ${goalWeight} kg` : "Define tu meta"}
+          </div>
         </div>
       </section>
 
-      {/* ✅ Objetivo de peso */}
+      {/* Objetivo de peso */}
       <section className="dash-section">
         <div className="dash-sec-head">
           <h2>Objetivo</h2>
@@ -182,22 +196,101 @@ export default function Dashboard() {
         )}
       </section>
 
-      {/* Heatmap semanal (decorativo por ahora) */}
+      {/* Minutos de HOY (Gauge) */}
       <section className="dash-section">
         <div className="dash-sec-head">
-          <h2>Asistencia semanal</h2>
+          <h2>Minutos de hoy</h2>
+          <div className="dash-sec-note">Objetivo diario: 60 min</div>
         </div>
-        <div className="heat-grid">
-          {["lun", "mar", "mié", "jue", "vie", "sáb", "dom"].map((dia, i) => (
-            <div key={dia} className="heat-item">
-              <div className="heat-label">{dia}</div>
-              <div
-                className="heat-cell"
-                style={{ background: chartColors.heat[i % 5] }}
+
+        <div className="chart-box" style={{ height: 260 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <RadialBarChart
+              innerRadius="60%"
+              outerRadius="100%"
+              startAngle={180}
+              endAngle={0}
+              data={[
+                { name: "meta", value: 60 },
+                { name: "hoy", value: Math.min(todayMinutes, 60) },
+              ]}
+            >
+              <PolarAngleAxis type="number" domain={[0, 60]} tick={false} />
+              <RadialBar dataKey="value" cornerRadius={14} />
+              <Tooltip
+                contentStyle={{
+                  background: chartColors.tooltipBg,
+                  border: `1px solid ${chartColors.tooltipBorder}`,
+                  borderRadius: 8,
+                }}
               />
-            </div>
-          ))}
+            </RadialBarChart>
+          </ResponsiveContainer>
         </div>
+
+        <div className="dash-kpi-value" style={{ textAlign: "center", marginTop: 8 }}>
+          {todayMinutes} / 60 min
+        </div>
+      </section>
+
+      {/* Peso diario (línea 14 días) + formulario */}
+      <section className="dash-section">
+        <div className="dash-sec-head">
+          <h2>Peso diario (14 días)</h2>
+          <div className="dash-sec-note">Registra tu peso para ver la tendencia</div>
+        </div>
+
+        <div className="chart-box" style={{ height: 260 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={weightLineDaily}>
+              <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" />
+              <XAxis dataKey="fecha" stroke={chartColors.text} />
+              <YAxis stroke={chartColors.text} />
+              <Tooltip
+                contentStyle={{
+                  background: chartColors.tooltipBg,
+                  border: `1px solid ${chartColors.tooltipBorder}`,
+                  borderRadius: 8,
+                }}
+              />
+              <Line type="monotone" dataKey="peso" stroke={chartColors.line} strokeWidth={2} dot />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {user ? (
+          <form
+            onSubmit={handleSavePeso}
+            className="quick-card"
+            style={{ marginTop: 12, display: "flex", gap: 8 }}
+          >
+            <input
+              type="number"
+              min="1"
+              step="0.1"
+              placeholder="Peso de hoy (kg)"
+              value={pesoHoy}
+              onChange={(e) => setPesoHoy(e.target.value)}
+              style={{
+                flex: 1,
+                padding: 10,
+                borderRadius: 10,
+                border: "none",
+                background: "rgba(255,255,255,.1)",
+                color: "#fff",
+              }}
+            />
+            <button
+              className="btn"
+              disabled={savingPeso || !pesoHoy}
+              style={{ padding: "10px 14px", borderRadius: 10, border: "none", fontWeight: 700 }}
+            >
+              {savingPeso ? "Guardando..." : "Guardar peso"}
+            </button>
+          </form>
+        ) : (
+          <div className="dash-alert">Inicia sesión para registrar tu peso.</div>
+        )}
       </section>
 
       {/* Registrar sesión rápida */}
@@ -213,61 +306,7 @@ export default function Dashboard() {
         )}
       </section>
 
-      {/* Línea de peso */}
-      <section className="dash-section">
-        <div className="dash-sec-head">
-          <h2>Tendencia de peso (14 días)</h2>
-        </div>
-        <div className="chart-box" style={{ height: 260 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={serie}>
-              <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" />
-              <XAxis dataKey="fecha" stroke={chartColors.text} />
-              <YAxis stroke={chartColors.text} />
-              <Tooltip
-                contentStyle={{
-                  background: chartColors.tooltipBg,
-                  border: `1px solid ${chartColors.tooltipBorder}`,
-                  borderRadius: 8,
-                }}
-              />
-              <Line
-                type="monotone"
-                dataKey="peso"
-                stroke={chartColors.line}
-                strokeWidth={2}
-                dot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </section>
-
-      {/* Barras de volumen */}
-      <section className="dash-section">
-        <div className="dash-sec-head">
-          <h2>Volumen de entrenamiento (14 días)</h2>
-        </div>
-        <div className="chart-box" style={{ height: 260 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={serie}>
-              <CartesianGrid stroke={chartColors.grid} strokeDasharray="3 3" />
-              <XAxis dataKey="fecha" stroke={chartColors.text} />
-              <YAxis stroke={chartColors.text} />
-              <Tooltip
-                contentStyle={{
-                  background: chartColors.tooltipBg,
-                  border: `1px solid ${chartColors.tooltipBorder}`,
-                  borderRadius: 8,
-                }}
-              />
-              <Bar dataKey="volumen" fill={chartColors.barFill} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </section>
-
-      {/* ===== Logros (abajo) ===== */}
+      {/* Logros */}
       <section className="dash-section">
         <div className="dash-sec-head">
           <h2>Logros</h2>
@@ -278,4 +317,3 @@ export default function Dashboard() {
     </div>
   );
 }
-

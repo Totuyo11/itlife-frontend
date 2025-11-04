@@ -12,6 +12,10 @@ import { AuthProvider, useAuth } from "./AuthContext";
 import { ThemeProvider } from "./theme";
 import { ToastProvider } from "./useToast";
 
+// 👉 Toastify (nuevo)
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+
 // === IMPORTS DIRECTOS (evitan el error en /login y /register) ===
 import Navbar from "./Navbar";
 import Home from "./Home";
@@ -21,7 +25,6 @@ import MisDatos from "./MisDatos";
 import Ejercicios from "./Ejercicios";
 
 // === LAZY SOLO EN PÁGINAS PESADAS QUE EXISTEN ===
-// Asegúrate de que estos archivos existen y exportan `export default`
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Rutinas = lazy(() => import("./services/Rutinas")); // <- ruta real
 const Recomendadas = lazy(() => import("./pages/RutinasRecomendadas")); // <- ruta real
@@ -79,7 +82,9 @@ function AdminRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
-  return ALLOWED_ADMINS.includes(user.uid) ? children : <Navigate to="/dashboard" replace />;
+  return ALLOWED_ADMINS.includes(user.uid)
+    ? children
+    : <Navigate to="/dashboard" replace />;
 }
 
 // Ocultar navbar en auth
@@ -93,6 +98,7 @@ function AppShell() {
     <>
       <ScrollToTop />
       {!hideNavbar && <Navbar />}
+
       <Suspense fallback={<LoadingScreen />}>
         <Routes>
           {/* Públicas */}
@@ -186,6 +192,9 @@ function AppShell() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
+
+      {/* 👉 Contenedor global de Toastify */}
+      <ToastContainer position="bottom-right" autoClose={3000} theme="dark" />
     </>
   );
 }
@@ -203,4 +212,3 @@ export default function App() {
     </AuthProvider>
   );
 }
-

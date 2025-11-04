@@ -1,12 +1,17 @@
 // src/components/GoalWeightCard.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { updateGoalWeight } from "../services/userProfile";
+import { toast } from "react-toastify";
 
 export default function GoalWeightCard({ uid, goalWeight, ultimoPeso }) {
   const [val, setVal] = useState(goalWeight ?? "");
   const [loading, setLoading] = useState(false);
   const [ok, setOk] = useState("");
   const [err, setErr] = useState("");
+
+  useEffect(() => {
+    setVal(goalWeight ?? "");
+  }, [goalWeight]);
 
   const reached =
     typeof goalWeight === "number" &&
@@ -15,13 +20,19 @@ export default function GoalWeightCard({ uid, goalWeight, ultimoPeso }) {
     ultimoPeso <= goalWeight + 0.2;
 
   async function save() {
-    setOk(""); setErr(""); setLoading(true);
+    setOk("");
+    setErr("");
+    setLoading(true);
     try {
-      await updateGoalWeight(uid, val);
+      const kg = Number(val);
+      if (!kg || kg <= 0) throw new Error("Meta inválida");
+      await updateGoalWeight(uid, kg);
       setOk("Meta guardada ✅");
+      toast.success("🎯 Meta de peso guardada");
     } catch (e) {
       console.error(e);
       setErr("No se pudo guardar la meta");
+      toast.error("❌ No se pudo guardar la meta");
     } finally {
       setLoading(false);
     }
@@ -66,4 +77,3 @@ export default function GoalWeightCard({ uid, goalWeight, ultimoPeso }) {
     </div>
   );
 }
-

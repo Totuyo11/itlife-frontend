@@ -187,7 +187,7 @@ export default function Home() {
         </details>
         <details className="faq-item reveal" style={{ transitionDelay: "160ms" }}>
           <summary>¿Tienen modo oscuro y claro?</summary>
-          <p>Sí, puedes alternar desde el botón del navbar (☀️/🌙).</p>
+          <p>Sí, puedes alternar desde el botón del navbar (Claro / Oscuro).</p>
         </details>
       </section>
 

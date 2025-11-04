@@ -1,8 +1,9 @@
 // src/components/QuickSession.jsx
 import React, { useState } from "react";
 import { addQuickSession } from "../services/sessions";
+import { toast } from "react-toastify";
 
-export default function QuickSession({ uid }) {
+export default function QuickSession({ uid, onSaved, onError }) {
   const [minutes, setMinutes] = useState("");
   const [volume, setVolume] = useState("");
   const [notes, setNotes] = useState("");
@@ -12,7 +13,9 @@ export default function QuickSession({ uid }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setLoading(true); setOk(""); setErr("");
+    setLoading(true);
+    setOk("");
+    setErr("");
     try {
       await addQuickSession(uid, {
         minutes: minutes ? Number(minutes) : 0,
@@ -20,11 +23,16 @@ export default function QuickSession({ uid }) {
         notes,
       });
       setOk("Sesión registrada ✅");
-      setMinutes(""); setVolume(""); setNotes("");
-      // El dashboard se actualizará vía onSnapshot
+      setMinutes("");
+      setVolume("");
+      setNotes("");
+      toast.success("✅ Sesión registrada");
+      if (onSaved) onSaved();
     } catch (error) {
-      setErr("No se pudo registrar la sesión. Intenta de nuevo.");
       console.error(error);
+      setErr("No se pudo registrar la sesión. Intenta de nuevo.");
+      toast.error("❌ No se pudo registrar la sesión");
+      if (onError) onError(error);
     } finally {
       setLoading(false);
     }
@@ -73,4 +81,3 @@ export default function QuickSession({ uid }) {
     </form>
   );
 }
-

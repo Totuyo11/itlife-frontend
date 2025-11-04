@@ -88,3 +88,38 @@
   outline-offset: 2px;
   border-radius: .5rem;
 }
+/* Progreso: layout mínimo de cards y charts */
+.page-progreso { padding: 24px; }
+.page-header h1 { margin: 0 0 4px; }
+.page-header .muted { opacity:.7; margin:0 0 16px; }
+
+.kpi-grid {
+  display:grid;
+  grid-template-columns: repeat(auto-fit,minmax(220px,1fr));
+  gap:16px; margin: 8px 0 16px;
+}
+.kpi-card {
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 16px; padding: 16px;
+}
+.kpi-label { opacity:.8; font-size: .9rem; }
+.kpi-big { font-size: 2rem; font-weight: 700; }
+.kpi-big span { font-size: 1rem; opacity:.8; margin-left: 6px; }
+.kpi-foot { margin-top: 4px; opacity: .85; }
+
+.chart-card {
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.chart-card h3 { margin: 0 0 8px; }
+
+@media (max-width: 920px) {
+  .kpi-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 640px) {
+  .kpi-grid { grid-template-columns: 1fr; }
+}

@@ -2,13 +2,18 @@
 import React, { useEffect, useState } from "react";
 import "../Register.css";
 import { useAuth } from "../AuthContext";
-import { validarInputs, generarRutina } from "../recommender";
+
+// Servicios
+import { recomendarRutinas } from "../services/recommenderService";
+import { validarInputs } from "../recommender";
+import { postProcessPlan } from "../services/planPostProcessor";
+
 import {
   listenRoutines,
   createRoutine,
   updateRoutine,
   deleteRoutine,
-} from "../services/routines"; // ✅ ruta correcta
+} from "../services/routines";
 
 // ---------- Utils texto <-> items ----------
 function parseItemsFromText(text) {
@@ -23,7 +28,6 @@ function itemsToText(items = []) {
 }
 
 // ---------- Cliente API ML ----------
-// Permite override desde localStorage y usa el hostname actual como fallback.
 const LS_API = (localStorage.getItem("fitlife_api_url") || "").trim();
 const API =
   LS_API ||
@@ -31,19 +35,30 @@ const API =
   `http://${window.location.hostname}:8000`;
 
 async function predictRoutineAPI(payload) {
-  const res = await fetch(`${API}/predict`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const msg = await res.text().catch(() => "");
-    throw new Error(`API error ${res.status} ${msg}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1500); // timeout ML 1.5s
+
+  try {
+    const res = await fetch(`${API}/predict`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const msg = await res.text().catch(() => "");
+      throw new Error(`API error ${res.status} ${msg}`);
+    }
+    return await res.json();
+  } catch (err) {
+    console.warn("Predict fallback:", err.message);
+    return null;
+  } finally {
+    clearTimeout(timeout);
   }
-  return res.json(); // { focus_plan, scheme, metadata }
 }
 
-// ---------- Opciones de selects ----------
+// ---------- Opciones ----------
 const OBJETIVOS = {
   1: "bajar peso",
   2: "subir peso",
@@ -51,17 +66,24 @@ const OBJETIVOS = {
   4: "recomposición muscular",
 };
 const DIFICULTADES = { 1: "principiante", 2: "intermedio", 3: "avanzado" };
-const LIMITACIONES = { 1: "articulares", 2: "muscular", 3: "enfermedad", 4: "ninguna" };
+const LIMITACIONES = {
+  1: "articulares",
+  2: "muscular",
+  3: "enfermedad",
+  4: "ninguna",
+};
 const TIEMPOS = { 1: "30-45min", 2: "60-90min", 3: "120-180min" };
 const FRECUENCIAS = { 1: "1-2 días", 2: "3-4 días", 3: "5-6 días" };
 
-// Convierte plan semanal a items para tu CRUD
+// ---------- Utils para plan ----------
 function planToItems(planSemanal = [], schemeOverride = null) {
   const items = [];
   for (const dia of planSemanal) {
     const foco = Array.isArray(dia?.foco) ? dia.foco : [];
     items.push({
-      name: `Día ${dia?.dia ?? "?"}: ${foco.join(" + ")} · ${dia?.duracionEstimadaMin ?? "?"} min`,
+      name: `Día ${dia?.dia ?? "?"}: ${foco.join(" + ")} · ${
+        dia?.duracionEstimadaMin ?? "?"
+      } min`,
     });
 
     const bloques = Array.isArray(dia?.bloques) ? dia.bloques : [];
@@ -86,16 +108,13 @@ function planToItems(planSemanal = [], schemeOverride = null) {
   return items;
 }
 
+// ---------- Página principal ----------
 export default function Rutinas() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [routines, setRoutines] = useState([]);
-
-  // Crear (manual)
   const [name, setName] = useState("");
   const [rawItems, setRawItems] = useState("");
-
-  // Generador IA
   const [genLoading, setGenLoading] = useState(false);
   const [genInputs, setGenInputs] = useState({
     objetivo: 1,
@@ -104,8 +123,6 @@ export default function Rutinas() {
     tiempo: 1,
     frecuencia: 2,
   });
-
-  // Edit modal
   const [editing, setEditing] = useState(null);
 
   useEffect(() => {
@@ -121,7 +138,7 @@ export default function Rutinas() {
     return () => unsub && unsub();
   }, [user]);
 
-  // ---------- Crear manual ----------
+  // Crear manual
   async function onCreate(e) {
     e.preventDefault();
     if (!user) return;
@@ -138,70 +155,82 @@ export default function Rutinas() {
     }
   }
 
-  // ---------- Generar con IA ----------
+  function buildPlanFromFocus(focusPlan = [], ranked = []) {
+    const plan = [];
+    for (let i = 0; i < focusPlan.length; i++) {
+      const focoDia = Array.isArray(focusPlan[i]) ? focusPlan[i] : [];
+      const minutos = ranked[i]?.minutos ?? 30;
+      const bloques = focoDia.map((g) => ({ grupo: g, ejercicios: [] }));
+      plan.push({
+        dia: i + 1,
+        foco: focoDia,
+        duracionEstimadaMin: minutos,
+        bloques,
+      });
+    }
+    return plan;
+  }
+
+  // Generar con IA + reglas
   async function onGenerateAI(e) {
     e.preventDefault();
-    if (!user) {
-      alert("Inicia sesión para guardar tu rutina.");
-      return;
-    }
-    const errs = validarInputs(genInputs);
-    if (errs.length) {
-      alert(`Datos inválidos: ${errs.join(" · ")}`);
-      return;
-    }
+    if (!user) return alert("Inicia sesión para guardar tu rutina.");
 
+    const norm = validarInputs(genInputs);
     setGenLoading(true);
     try {
-      const pred = await predictRoutineAPI(genInputs);
+      const ranked = await recomendarRutinas(norm);
+      let focusPlan = null;
+      let scheme = null;
+      let modelVer = "NA";
 
-      const base = generarRutina({ ...genInputs, userId: user.uid }) || {};
-      const planBase = Array.isArray(base.planSemanal) ? base.planSemanal : [];
+      const pred = await predictRoutineAPI(norm);
+      if (pred) {
+        focusPlan = Array.isArray(pred?.focus_plan) ? pred.focus_plan : null;
+        scheme = pred?.scheme || null;
+        modelVer = pred?.metadata?.model_version || "NA";
+      }
 
-      const focoModeloTotal = Array.isArray(pred?.focus_plan) ? pred.focus_plan : [];
-      const planAjustado = planBase.map((dia, i) => {
-        const focoModelo = Array.isArray(focoModeloTotal[i]) ? focoModeloTotal[i] : (dia?.foco || []);
-        const bloques = Array.isArray(dia?.bloques) ? dia.bloques : [];
+      if (!focusPlan) {
+        const top = ranked.slice(0, 3).map((r) => [r.foco || "General"]);
+        focusPlan = top.length ? top : [["General"], ["General"], ["General"]];
+      }
 
-        const bloquesAjustados = bloques.map((b) => {
-          const aplicarEsquema = Array.isArray(focoModelo) ? focoModelo.includes(b?.grupo) : false;
-          const ejercicios = Array.isArray(b?.ejercicios) ? b.ejercicios : [];
-          return {
-            ...b,
-            ejercicios: ejercicios.map((ex) => ({
-              ...ex,
-              esquema: aplicarEsquema ? (pred?.scheme || ex?.esquema) : ex?.esquema,
-            })),
-          };
-        });
+      let plan = buildPlanFromFocus(focusPlan, ranked);
 
-        return { ...dia, foco: focoModelo, bloques: bloquesAjustados };
+      // ⚙️ Post-procesamiento avanzado
+      const { plan: planPP, resumen } = postProcessPlan(plan, {
+        perfil: {
+          experiencia: norm.dificultad,
+          imc: 22, // si ya lo tienes en Firestore puedes reemplazarlo
+          limitacion: norm.limitacion,
+        },
       });
 
-      const items = planToItems(planAjustado);
-      if (items.length === 0) throw new Error("No se pudo construir el plan (items vacíos).");
+      const items = planToItems(planPP, scheme);
+      if (items.length === 0) throw new Error("Plan vacío");
 
-      const genName = `Rutina ${OBJETIVOS[genInputs.objetivo]} · ${FRECUENCIAS[genInputs.frecuencia]} · ${TIEMPOS[genInputs.tiempo]}`;
+      const genName = `Rutina ${OBJETIVOS[norm.objetivo]} · ${FRECUENCIAS[norm.frecuencia]} · ${TIEMPOS[norm.tiempo]}`;
       await createRoutine(user.uid, {
         name: genName,
         items,
         _meta: {
-          fuente: "ML+rules",
-          modelVersion: pred?.metadata?.model_version || "NA",
-          ...genInputs,
+          fuente: scheme ? "ML+rules" : "rules-only",
+          modelVersion: modelVer,
+          postProcess: resumen,
+          ...norm,
         },
       });
-
-      alert("Rutina generada (expandida con ejercicios) ✅");
+      alert("Rutina generada ✅");
     } catch (err) {
       console.error(err);
-      alert(`No se pudo generar con la IA. ¿Está corriendo la API en ${API}?`);
+      alert("Error al recomendar/generar rutina. Revisa consola.");
     } finally {
       setGenLoading(false);
     }
   }
 
-  // ---------- Editar / duplicar / eliminar ----------
+  // Editar / duplicar / eliminar
   function openEdit(rt) {
     setEditing({
       id: rt.id,
@@ -226,7 +255,10 @@ export default function Rutinas() {
   async function onDuplicate(rt) {
     if (!user) return;
     try {
-      await createRoutine(user.uid, { name: `${rt.name} (copia)`, items: rt.items || [] });
+      await createRoutine(user.uid, {
+        name: `${rt.name} (copia)`,
+        items: rt.items || [],
+      });
     } catch (err) {
       console.error(err);
       alert("No se pudo duplicar");
@@ -247,7 +279,7 @@ export default function Rutinas() {
   return (
     <div className="rtn-wrap">
       <header className="rtn-hero">
-        <h1 className="rtn-title"> Rutinas</h1>
+        <h1 className="rtn-title">Rutinas</h1>
         <p className="rtn-sub">
           Crea planes enfocados y organízalos por ejercicios.{" "}
           <span className="pill">Uno por línea</span>
@@ -260,39 +292,98 @@ export default function Rutinas() {
           <div className="rtn-head">
             <h2>Generar Rutina</h2>
           </div>
-
           <form className="rtn-form" onSubmit={onGenerateAI}>
             <div className="rtn-grid-compact">
-              <Select label="Objetivo" value={genInputs.objetivo} onChange={(v) => setGenInputs((s) => ({ ...s, objetivo: Number(v) }))} options={Object.entries(OBJETIVOS).map(([v, t]) => ({ value: v, label: t }))} />
-              <Select label="Dificultad" value={genInputs.dificultad} onChange={(v) => setGenInputs((s) => ({ ...s, dificultad: Number(v) }))} options={Object.entries(DIFICULTADES).map(([v, t]) => ({ value: v, label: t }))} />
-              <Select label="Limitación" value={genInputs.limitacion} onChange={(v) => setGenInputs((s) => ({ ...s, limitacion: Number(v) }))} options={Object.entries(LIMITACIONES).map(([v, t]) => ({ value: v, label: t }))} />
-              <Select label="Tiempo" value={genInputs.tiempo} onChange={(v) => setGenInputs((s) => ({ ...s, tiempo: Number(v) }))} options={Object.entries(TIEMPOS).map(([v, t]) => ({ value: v, label: t }))} />
-              <Select label="Frecuencia" value={genInputs.frecuencia} onChange={(v) => setGenInputs((s) => ({ ...s, frecuencia: Number(v) }))} options={Object.entries(FRECUENCIAS).map(([v, t]) => ({ value: v, label: t }))} />
+              <Select
+                label="Objetivo"
+                value={genInputs.objetivo}
+                onChange={(v) =>
+                  setGenInputs((s) => ({ ...s, objetivo: Number(v) }))
+                }
+                options={Object.entries(OBJETIVOS).map(([v, t]) => ({
+                  value: v,
+                  label: t,
+                }))}
+              />
+              <Select
+                label="Dificultad"
+                value={genInputs.dificultad}
+                onChange={(v) =>
+                  setGenInputs((s) => ({ ...s, dificultad: Number(v) }))
+                }
+                options={Object.entries(DIFICULTADES).map(([v, t]) => ({
+                  value: v,
+                  label: t,
+                }))}
+              />
+              <Select
+                label="Limitación"
+                value={genInputs.limitacion}
+                onChange={(v) =>
+                  setGenInputs((s) => ({ ...s, limitacion: Number(v) }))
+                }
+                options={Object.entries(LIMITACIONES).map(([v, t]) => ({
+                  value: v,
+                  label: t,
+                }))}
+              />
+              <Select
+                label="Tiempo"
+                value={genInputs.tiempo}
+                onChange={(v) =>
+                  setGenInputs((s) => ({ ...s, tiempo: Number(v) }))
+                }
+                options={Object.entries(TIEMPOS).map(([v, t]) => ({
+                  value: v,
+                  label: t,
+                }))}
+              />
+              <Select
+                label="Frecuencia"
+                value={genInputs.frecuencia}
+                onChange={(v) =>
+                  setGenInputs((s) => ({ ...s, frecuencia: Number(v) }))
+                }
+                options={Object.entries(FRECUENCIAS).map(([v, t]) => ({
+                  value: v,
+                  label: t,
+                }))}
+              />
             </div>
-
             <div className="rtn-actions">
               <button className="btn" type="submit" disabled={genLoading}>
-                {genLoading ? "Generando..." : " Generar rutina"}
+                {genLoading ? "Generando..." : "Generar rutina"}
               </button>
             </div>
           </form>
         </div>
       </section>
 
-      {/* Crear nueva rutina */}
+      {/* Crear manual */}
       <section className="rtn-section">
         <div className="rtn-card form-deco">
-          <div className="rtn-head"><h2>Crear rutina (manual)</h2></div>
-        </div>
-        <div className="rtn-card form-deco">
+          <div className="rtn-head">
+            <h2>Crear rutina (manual)</h2>
+          </div>
           <form className="rtn-form" onSubmit={onCreate}>
             <div className="rtn-row">
               <label>Nombre</label>
-              <input className="rtn-input" placeholder="Ej. Full Body 45min" value={name} onChange={(e) => setName(e.target.value)} />
+              <input
+                className="rtn-input"
+                placeholder="Ej. Full Body 45min"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
             </div>
             <div className="rtn-row">
               <label>Ejercicios (uno por línea)</label>
-              <textarea className="rtn-textarea" rows={5} placeholder={`Sentadilla\nPress banca\nRemo con barra`} value={rawItems} onChange={(e) => setRawItems(e.target.value)} />
+              <textarea
+                className="rtn-textarea"
+                rows={5}
+                placeholder={`Sentadilla\nPress banca\nRemo con barra`}
+                value={rawItems}
+                onChange={(e) => setRawItems(e.target.value)}
+              />
             </div>
             <div className="rtn-actions">
               <button className="btn" type="submit" disabled={!name || !rawItems}>
@@ -320,7 +411,9 @@ export default function Rutinas() {
           <div className="rtn-empty">
             <div className="rtn-empty-ico">🗂️</div>
             <div className="rtn-empty-title">Aún no tienes rutinas</div>
-            <div className="rtn-empty-sub">Crea una arriba para empezar a planificar tus sesiones.</div>
+            <div className="rtn-empty-sub">
+              Crea una arriba para empezar a planificar tus sesiones.
+            </div>
           </div>
         ) : (
           <div className="rtn-grid">
@@ -329,19 +422,36 @@ export default function Rutinas() {
                 <div className="rtn-card-head">
                   <h3 className="rtn-card-title">{rt.name}</h3>
                   <div className="rtn-badges">
-                    <span className="pill">{(rt.items || []).length} ejercicios</span>
+                    <span className="pill">
+                      {(rt.items || []).length} ejercicios
+                    </span>
                   </div>
                 </div>
                 <ul className="rtn-items">
-                  {(rt.items || []).slice(0, 5).map((it, idx) => (
-                    <li key={idx} className="rtn-item"><span className="rtn-bullet">•</span><span>{it.name}</span></li>
-                  ))}
-                  {(rt.items || []).length > 5 && <li className="rtn-more">… y {(rt.items || []).length - 5} más</li>}
+                  {(rt.items || [])
+                    .slice(0, 5)
+                    .map((it, idx) => (
+                      <li key={idx} className="rtn-item">
+                        <span className="rtn-bullet">•</span>
+                        <span>{it.name}</span>
+                      </li>
+                    ))}
+                  {(rt.items || []).length > 5 && (
+                    <li className="rtn-more">
+                      … y {(rt.items || []).length - 5} más
+                    </li>
+                  )}
                 </ul>
                 <div className="rtn-card-actions">
-                  <button className="btn-secondary" onClick={() => openEdit(rt)}>✏️ Editar</button>
-                  <button className="btn-secondary" onClick={() => onDuplicate(rt)}>🧬 Duplicar</button>
-                  <button className="btn-danger" onClick={() => onDelete(rt)}>🗑️ Eliminar</button>
+                  <button className="btn-secondary" onClick={() => openEdit(rt)}>
+                    ✏️ Editar
+                  </button>
+                  <button className="btn-secondary" onClick={() => onDuplicate(rt)}>
+                    🧬 Duplicar
+                  </button>
+                  <button className="btn-danger" onClick={() => onDelete(rt)}>
+                    🗑️ Eliminar
+                  </button>
                 </div>
               </article>
             ))}
@@ -356,13 +466,30 @@ export default function Rutinas() {
             <div className="modal-title">Editar rutina</div>
             <div className="modal-body">
               <label>Nombre</label>
-              <input className="rtn-input" value={editing.name} onChange={(e) => setEditing((s) => ({ ...s, name: e.target.value }))} />
+              <input
+                className="rtn-input"
+                value={editing.name}
+                onChange={(e) =>
+                  setEditing((s) => ({ ...s, name: e.target.value }))
+                }
+              />
               <label>Ejercicios (uno por línea)</label>
-              <textarea className="rtn-textarea" rows={6} value={editing.itemsText} onChange={(e) => setEditing((s) => ({ ...s, itemsText: e.target.value }))} />
+              <textarea
+                className="rtn-textarea"
+                rows={6}
+                value={editing.itemsText}
+                onChange={(e) =>
+                  setEditing((s) => ({ ...s, itemsText: e.target.value }))
+                }
+              />
             </div>
             <div className="modal-actions">
-              <button className="btn-secondary" onClick={() => setEditing(null)}>Cancelar</button>
-              <button className="btn" onClick={onSaveEdit}>Guardar cambios</button>
+              <button className="btn-secondary" onClick={() => setEditing(null)}>
+                Cancelar
+              </button>
+              <button className="btn" onClick={onSaveEdit}>
+                Guardar cambios
+              </button>
             </div>
           </div>
         </div>
@@ -371,17 +498,22 @@ export default function Rutinas() {
   );
 }
 
-// ---------- Pequeño Select ----------
+// ---------- Select pequeño ----------
 function Select({ label, value, onChange, options }) {
   return (
     <label className="rtn-row" style={{ minWidth: 220 }}>
       <span>{label}</span>
-      <select className="rtn-input" value={value} onChange={(e) => onChange(e.target.value)}>
+      <select
+        className="rtn-input"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
         {options.map((op) => (
-          <option key={op.value} value={op.value}>{op.label}</option>
+          <option key={op.value} value={op.value}>
+            {op.label}
+          </option>
         ))}
       </select>
     </label>
   );
 }
-

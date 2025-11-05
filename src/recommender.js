@@ -1,269 +1,238 @@
-// src/recommender.js
-import {
-  collection, getDocs, addDoc, serverTimestamp,
-  query, where, orderBy, limit, Timestamp
-} from "firebase/firestore";
-import { db } from "./firebase";
+// recommender.js — versión PRO (reglas + ML + explicabilidad)
 
-/* =========================================================
-   🔌 Resolver de API (útil para otras pantallas)
-   Prioridad:
-   1) localStorage.fitlife_api_url
-   2) process.env.REACT_APP_API_URL
-   3) http://<hostname>:8000
-   ========================================================= */
-export const API_URL = (() => {
-  try {
-    const ls = (localStorage.getItem("fitlife_api_url") || "").trim();
-    if (ls) return ls;
-  } catch {}
-  if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
-  if (typeof window !== "undefined" && window.location?.hostname) {
-    return `http://${window.location.hostname}:8000`;
-  }
-  // fallback final
-  return "http://127.0.0.1:8000";
-})();
+/// =====================
+/// Config
+/// =====================
+export const WEIGHTS = {
+  objetivo: 0.35,
+  nivel: 0.20,
+  minutos: 0.15,
+  foco: 0.15,
+  diversidad: 0.05,      // pequeño empujón si el foco cambia vs última vez
+  biasCatálogo: 0.10,     // si tienes score base del ejercicio/catálogo
+};
 
-// Permite cambiar la URL sin recompilar (se guarda en localStorage)
-export function setApiUrl(url) {
-  if (!url || typeof url !== "string") return API_URL;
-  try {
-    localStorage.setItem("fitlife_api_url", url.trim());
-  } catch {}
-  return url.trim();
+export const PENALTY = {
+  repeated48h: 0.30,      // resta hasta 0.30 si se repite < 48h
+  windowMs: 1000 * 60 * 60 * 48,
+};
+
+export const BOOSTS = {
+  mlFocusMatch: 0.12,     // boost si coincide foco con la IA
+  mlSchemeMatch: 0.08,    // boost si coincide esquema/plan con la IA
+};
+
+const PREDICT_URL = "http://127.0.0.1:8000/predict";
+const PREDICT_TIMEOUT_MS = 1200;  // timeout corto → UX ágil
+const PREDICT_CACHE_MS   = 5 * 60 * 1000; // cache 5 min
+
+/// =====================
+/// Utils
+/// =====================
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+function normalizedMinutesScore(minutos, wishBucket) {
+  // buckets de tiempo: 1=10-20, 2=20-30, 3=30-45, 4=45-60
+  const ranges = {
+    1: [10, 20],
+    2: [20, 30],
+    3: [30, 45],
+    4: [45, 60],
+  };
+  const [lo, hi] = ranges[wishBucket] || [20, 30];
+  if (minutos == null) return 0.5;
+  if (minutos <= lo) return Math.max(0, 1 - (lo - minutos) / 20);
+  if (minutos >= hi) return Math.max(0, 1 - (minutos - hi) / 30);
+  // dentro del rango preferido
+  return 1.0;
 }
 
-/* ============== Helpers ============== */
-function normStr(v, d = "") { return typeof v === "string" ? v : d; }
-function normNum(v, d = null) { return typeof v === "number" ? v : d; }
-function normArr(a, d = []) { return Array.isArray(a) ? a : d; }
+/// =====================
+/// Fetch predict (IA) con timeout, reintento y caché
+/// =====================
+const _predictCache = new Map(); // key-> {ts, data}
 
-/* Asegura que cada rutina tenga los campos que usamos en UI/score */
-function normalizeRoutine(r) {
+async function fetchPredict(inputs) {
+  const key = JSON.stringify(inputs);
+  const now = Date.now();
+  const cached = _predictCache.get(key);
+  if (cached && now - cached.ts < PREDICT_CACHE_MS) return cached.data;
+
+  const controller = new AbortController();
+  const to = setTimeout(() => controller.abort(), PREDICT_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(PREDICT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(inputs),
+      signal: controller.signal,
+    });
+    clearTimeout(to);
+    if (!res.ok) throw new Error("predict_not_ok");
+    const data = await res.json();
+    _predictCache.set(key, { ts: now, data });
+    return data;
+  } catch (e) {
+    clearTimeout(to);
+    // un reintento breve
+    await sleep(120);
+    try {
+      const res2 = await fetch(PREDICT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(inputs),
+      });
+      if (!res2.ok) throw new Error("predict_retry_not_ok");
+      const data2 = await res2.json();
+      _predictCache.set(key, { ts: now, data: data2 });
+      return data2;
+    } catch {
+      return null; // fallback a reglas
+    }
+  }
+}
+
+/// =====================
+/// Penalización por repetición <48h
+/// =====================
+export function recentUsedPenaltyMap(sessions = [], now = Date.now()) {
+  // sessions: [{id: 'routineId', at: timestamp}, ...]
+  const map = new Map();
+  for (const s of sessions) {
+    const t = typeof s.at === "number" ? s.at : new Date(s.at).getTime();
+    if (now - t <= PENALTY.windowMs) {
+      const curr = map.get(s.id) || 0;
+      map.set(s.id, Math.max(curr, PENALTY.repeated48h));
+    }
+  }
+  return map;
+}
+
+/// =====================
+/// Scoring + explicabilidad
+/// =====================
+export function scoreRoutine(inputs, r, ctx) {
+  const { objetivo, dificultad, tiempo } = inputs;
+  const { lastFocus, penaltyMap, mlSuggest } = ctx || {};
+
+  // componentes
+  const w = { ...WEIGHTS };
+  let s_obj = 0, s_lvl = 0, s_min = 0, s_focus = 0, s_div = 0, s_bias = 0, s_pen = 0, s_ml = 0;
+
+  // objetivo: mapea tu objetivo→ esquemas/focos preferidos
+  if (r.objetivoId != null) {
+    s_obj = r.objetivoId === objetivo ? 1 : 0.2;
+  }
+
+  // dificultad / nivel
+  if (r.nivel != null) {
+    const diff = Math.abs((r.nivel || 0) - (dificultad || 0));
+    s_lvl = diff === 0 ? 1 : diff === 1 ? 0.6 : 0.1;
+  }
+
+  // minutos vs bucket deseado
+  s_min = normalizedMinutesScore(r.minutos, tiempo);
+
+  // foco (pecho/espalda/hiit/etc.)
+  if (r.foco && inputs) {
+    s_focus = 0.6; // base
+  }
+  if (mlSuggest && mlSuggest.focus_plan && r.foco) {
+    if (r.foco.toLowerCase() === String(mlSuggest.focus_plan).toLowerCase()) {
+      s_ml += BOOSTS.mlFocusMatch;
+    }
+  }
+  if (mlSuggest && mlSuggest.scheme && r.scheme) {
+    if (r.scheme.toLowerCase() === String(mlSuggest.scheme).toLowerCase()) {
+      s_ml += BOOSTS.mlSchemeMatch;
+    }
+  }
+
+  // diversidad (pequeño boost si cambias de foco vs la última sesión)
+  if (lastFocus && r.foco && r.foco !== lastFocus) {
+    s_div = 1.0;
+  }
+
+  // bias por metadatos del catálogo (opcional)
+  if (typeof r.baseScore === "number") {
+    s_bias = Math.max(0, Math.min(1, r.baseScore));
+  }
+
+  // penalización por repetición
+  if (penaltyMap && penaltyMap.has(r.id)) {
+    s_pen = penaltyMap.get(r.id);
+  }
+
+  // score total
+  const base =
+    w.objetivo * s_obj +
+    w.nivel * s_lvl +
+    w.minutos * s_min +
+    w.foco * s_focus +
+    w.diversidad * s_div +
+    w.biasCatálogo * s_bias;
+
+  const total = Math.max(0, base + s_ml - s_pen);
+
   return {
-    id: r.id,
-    name: normStr(r.name, "Rutina"),
-    goal: normStr(r.goal, r._goal || ""),          // perder_peso | ganar_musculo | salud | hiit
-    level: normStr(r.level, r._level || ""),       // novato | intermedio | avanzado
-    sex: normStr(r.sex, "any"),
-    minAge: normNum(r.minAge, 14),
-    maxAge: normNum(r.maxAge, 65),
-    minMinutes: normNum(r.minMinutes, 30),
-    maxMinutes: normNum(r.maxMinutes, 45),
-    focus: normArr(r.focus, []),
-    blocks: normArr(r.blocks, []),
-    _global: !!r._global,
-    _score: typeof r._score === "number" ? r._score : undefined,
+    score: total,
+    explain: {
+      base, s_obj, s_lvl, s_min, s_focus, s_div, s_bias,
+      s_ml, s_pen, weights: w,
+      boosts: BOOSTS,
+      mlSuggest: mlSuggest || null,
+    },
   };
 }
 
-/** Lee rutinas del usuario; si no hay, usa /routines global (seed) */
-async function fetchRoutines(uid) {
-  if (!uid) return [];
+/// =====================
+/// Orquestación principal
+/// =====================
+export async function recommendRoutines(inputs, catalogo, opts = {}) {
+  const {
+    recentMap = new Map(),
+    lastFocus = null,
+    topK = 5,
+    sessions = [], // por si no pasas recentMap
+  } = opts;
 
-  try {
-    const snap = await getDocs(collection(db, "users", uid, "routines"));
-    let rows = snap.docs.map(d => normalizeRoutine({ id: d.id, ...d.data() }));
-    if (rows.length > 0) return rows;
-  } catch (e) {
-    console.warn("fetchRoutines(user):", e?.message || e);
-  }
+  const penaltyMap = recentMap.size ? recentMap : recentUsedPenaltyMap(sessions);
 
-  try {
-    const snap = await getDocs(collection(db, "routines"));
-    let rows = snap.docs.map(d => normalizeRoutine({ id: d.id, _global: true, ...d.data() }));
-    return rows;
-  } catch (e) {
-    console.warn("fetchRoutines(global):", e?.message || e);
-    return [];
-  }
-}
+  // 1) pedir sugerencia ML (con timeout + fallback)
+  const ml = await fetchPredict(inputs); // {focus_plan, scheme, metadata} | null
 
-/** Penaliza rutinas repetidas en las últimas 48h */
-async function recentUsedPenaltyMap(uid) {
-  if (!uid) return new Map();
-  try {
-    const twoDaysAgo = Timestamp.fromDate(new Date(Date.now() - 48 * 3600 * 1000));
-    const qy = query(
-      collection(db, "users", uid, "sessions"),
-      where("createdAt", ">=", twoDaysAgo),
-      orderBy("createdAt", "desc"),
-      limit(20)
-    );
-    const snap = await getDocs(qy);
-    const counts = new Map();
-    snap.forEach(doc => {
-      const rId = doc.data()?.routineId;
-      if (rId) counts.set(rId, (counts.get(rId) || 0) + 1);
-    });
-    return counts;
-  } catch (e) {
-    console.warn("recentUsedPenaltyMap:", e?.message || e);
-    return new Map();
-  }
-}
-
-/** Score sencillo con tolerancias */
-function scoreRoutine(r, prefs, recentPenaltyCount = 0) {
-  const { sex, age, experience, minutes, goal } = prefs;
-
-  if (age < (r.minAge ?? 0) - 2 || age > (r.maxAge ?? 120) + 2) return -Infinity;
-  if (minutes < (r.minMinutes ?? 0) - 10 || minutes > (r.maxMinutes ?? 999) + 10) return -Infinity;
-
-  let s = 0;
-
-  if (r.goal && goal && r.goal === goal) s += 3;
-
-  const order = ["novato", "intermedio", "avanzado"];
-  const iWant = order.indexOf((experience || "").toLowerCase());
-  const iHave = order.indexOf((r.level || "").toLowerCase());
-  if (iWant > -1 && iHave > -1) {
-    if (iWant === iHave) s += 3;
-    else if (Math.abs(iWant - iHave) === 1) s += 1;
-  }
-
-  if (!r.sex || r.sex === "any" || r.sex === sex) s += 1;
-
-  if (age >= (r.minAge ?? 0) && age <= (r.maxAge ?? 120)) s += 2;
-
-  const minM = r.minMinutes ?? 0;
-  const maxM = r.maxMinutes ?? 0;
-  if (minutes >= minM && minutes <= maxM) {
-    s += 2;
-    const center = (minM + maxM) / 2;
-    const half = Math.max(1, (maxM - minM) / 2);
-    s += 1 - Math.min(1, Math.abs(minutes - center) / half);
-  }
-
-  if (Array.isArray(r.focus) && r.focus.length) {
-    if (goal === "perder_peso" && r.focus.includes("cardio")) s += 0.5;
-    if (goal === "ganar_musculo" && (r.focus.includes("upper") || r.focus.includes("lower") || r.focus.includes("glutes"))) s += 0.5;
-  }
-
-  if (recentPenaltyCount > 0) s -= 2.5 * recentPenaltyCount;
-
-  return s;
-}
-
-/** API pública */
-export async function recommendRoutines({
-  uid, sex = "any", age = 20, experience = "novato", minutes = 30, goal = "salud", topN = 5,
-} = {}) {
-  const [routines, penaltyMap] = await Promise.all([
-    fetchRoutines(uid),
-    recentUsedPenaltyMap(uid),
-  ]);
-
-  const scored = [];
-  for (const r of routines) {
-    const penaltyTimes = penaltyMap.get(r.id) || 0;
-    const _score = scoreRoutine(r, { sex, age, experience, minutes, goal }, penaltyTimes);
-    if (_score !== -Infinity) scored.push({ ...r, _score });
-  }
-
-  scored.sort((a, b) => b._score - a._score);
-  return scored.slice(0, topN);
-}
-
-/** Registra sesión en users/{uid}/sessions */
-export async function logSession({ uid, routine, minutes }) {
-  if (!uid || !routine) return;
-  try {
-    const ref = collection(db, "users", uid, "sessions");
-    await addDoc(ref, {
-      routineId: routine.id,
-      routineName: routine.name,
-      goal: routine.goal,
-      level: routine.level,
-      minutes: minutes ?? routine.minMinutes ?? null,
-      createdAt: serverTimestamp(),
-    });
-  } catch (e) {
-    console.warn("logSession:", e?.message || e);
-  }
-}
-
-/* ---------- Validación para la página /Rutinas ---------- */
-export function validarInputs(inp = {}) {
-  const errs = [];
-  const isInt = (v) => Number.isInteger(v);
-  if (!isInt(inp.objetivo)   || inp.objetivo   < 1 || inp.objetivo   > 4) errs.push("objetivo (1-4)");
-  if (!isInt(inp.dificultad) || inp.dificultad < 1 || inp.dificultad > 3) errs.push("dificultad (1-3)");
-  if (!isInt(inp.limitacion) || inp.limitacion < 1 || inp.limitacion > 4) errs.push("limitación (1-4)");
-  if (!isInt(inp.tiempo)     || inp.tiempo     < 1 || inp.tiempo     > 3) errs.push("tiempo (1-3)");
-  if (!isInt(inp.frecuencia) || inp.frecuencia < 1 || inp.frecuencia > 3) errs.push("frecuencia (1-3)");
-  return errs;
-}
-
-/* ==========================================================
-   Genera un planSemanal base (con ejercicios y esquemas)
-   ========================================================== */
-export function generarRutina({
-  objetivo = 1,
-  dificultad = 1,
-  limitacion = 4,
-  tiempo = 1,
-  frecuencia = 2,
-} = {}) {
-  const dur = tiempo === 1 ? 40 : tiempo === 2 ? 70 : 120;
-  const dias = ({ 1: 2, 2: 4, 3: 6 }[frecuencia]) || 3;
-
-  const catalogo = {
-    pecho: [
-      { nombre: "Press banca", esquema: { series: 3, reps: "10-12", descanso: "60s" } },
-      { nombre: "Aperturas con mancuernas", esquema: { series: 3, reps: "12-15", descanso: "45s" } },
-    ],
-    tricep: [
-      { nombre: "Fondos en paralelas asistidos", esquema: { series: 3, reps: "8-12", descanso: "60s" } },
-    ],
-    espalda: [
-      { nombre: "Remo con barra", esquema: { series: 3, reps: "8-10", descanso: "90s" } },
-      { nombre: "Jalón al pecho", esquema: { series: 3, reps: "10-12", descanso: "60s" } },
-    ],
-    bicep: [
-      { nombre: "Curl con barra", esquema: { series: 3, reps: "10-12", descanso: "60s" } },
-    ],
-    pierna: [
-      { nombre: "Sentadilla", esquema: { series: 4, reps: "6-10", descanso: "120s" } },
-      { nombre: "Prensa", esquema: { series: 3, reps: "10-12", descanso: "90s" } },
-    ],
-    gluteo: [
-      { nombre: "Hip thrust", esquema: { series: 4, reps: "8-12", descanso: "90s" } },
-    ],
-    hombro: [
-      { nombre: "Press militar", esquema: { series: 3, reps: "8-10", descanso: "90s" } },
-      { nombre: "Elevaciones laterales", esquema: { series: 3, reps: "12-15", descanso: "45s" } },
-    ],
-    core: [
-      { nombre: "Plancha", esquema: { series: 3, reps: "30-45s", descanso: "45s" } },
-      { nombre: "Crunch en máquina", esquema: { series: 3, reps: "12-15", descanso: "45s" } },
-    ],
-  };
-
-  const focosPorDia = [
-    ["pecho", "tricep"],
-    ["espalda", "bicep"],
-    ["pierna", "gluteo", "core"],
-    ["hombro", "core"],
-    ["pecho", "bicep"],
-    ["pierna", "core"],
-  ];
-
-  const planSemanal = Array.from({ length: dias }).map((_, i) => {
-    const foco = focosPorDia[i % focosPorDia.length];
-    const bloques = foco.map((grupo) => ({
-      grupo,
-      ejercicios: (catalogo[grupo] || []).map((x) => ({ ...x })),
-    }));
-    return {
-      dia: i + 1,
-      foco,
-      duracionEstimadaMin: dur,
-      bloques,
-    };
+  // 2) score por reglas (+ boosts de ML + penalización)
+  const ranked = catalogo.map((r) => {
+    const { score, explain } = scoreRoutine(inputs, r, { lastFocus, penaltyMap, mlSuggest: ml });
+    return { ...r, score, explain };
   });
 
-  return { planSemanal };
+  // 3) ordenar y cortar
+  ranked.sort((a, b) => b.score - a.score);
+  return ranked.slice(0, topK);
 }
 
+/// =====================
+/// Log de sesión (ejemplo)
+/// =====================
+export async function logSession(uid, routineId, extra = {}) {
+  // Aquí integras con Firestore si quieres persistir para penalización futura.
+  // Ejemplo: await addDoc(collection(db,"users",uid,"sessions"), {id: routineId, at: Timestamp.now(), ...extra})
+  console.debug("logSession()", { uid, routineId, extra });
+}
+
+/// =====================
+/// Validación / normalización inputs (simple)
+/// =====================
+export function validarInputs(x) {
+  const out = { ...x };
+  const clamp = (v, lo, hi, def) =>
+    Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def;
+  out.objetivo = clamp(out.objetivo, 0, 4, 1);
+  out.dificultad = clamp(out.dificultad, 0, 3, 1);
+  out.limitacion = clamp(out.limitacion, 0, 5, 0);
+  out.tiempo = clamp(out.tiempo, 1, 4, 2);
+  out.frecuencia = clamp(out.frecuencia, 1, 7, 3);
+  return out;
+}

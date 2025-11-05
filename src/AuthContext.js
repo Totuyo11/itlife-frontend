@@ -1,30 +1,52 @@
 // src/AuthContext.js
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { onAuthStateChanged, signOut } from "firebase/auth";
-import { auth } from "./firebase";
+import {
+  getAuth,
+  onAuthStateChanged,
+  setPersistence,
+  browserLocalPersistence,
+  signOut,
+} from "firebase/auth";
+import { app } from "./firebase"; // tu init de firebase (getApps/initializeApp)
 
-const AuthContext = createContext(null);
+const AuthCtx = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(undefined); // undefined=loading, null=sin sesión
+  const auth = getAuth(app);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-    });
-    return () => unsub();
+    let unsub = () => {};
+    (async () => {
+      // Persistencia local (no impide signOut, sólo recuerda la sesión)
+      await setPersistence(auth, browserLocalPersistence);
+
+      unsub = onAuthStateChanged(auth, (u) => {
+        setUser(u ?? null);
+      });
+    })();
+
+    return () => unsub && unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const logout = () => signOut(auth);
+  const logout = async () => {
+    try {
+      await signOut(auth);
+      // Limpieza opcional de caches locales tuyas
+      sessionStorage.removeItem("fitlife:tmp");
+      localStorage.removeItem("fitlife:tmp");
 
-  return (
-    <AuthContext.Provider value={{ user, loading, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
+      // Forzar refresco de la app para evitar estados “fantasma”
+      window.location.replace("/login"); // o "/" si no tienes /login
+    } catch (e) {
+      console.error("logout error", e);
+      alert("No se pudo cerrar sesión. Revisa consola.");
+    }
+  };
+
+  const value = { user, loading: user === undefined, logout };
+  return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }
 
-export const useAuth = () => useContext(AuthContext);
-
+export const useAuth = () => useContext(AuthCtx);

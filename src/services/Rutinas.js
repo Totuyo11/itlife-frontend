@@ -131,10 +131,18 @@ export default function Rutinas() {
       setLoading(false);
       return;
     }
-    const unsub = listenRoutines(user.uid, (rows) => {
-      setRoutines(rows);
-      setLoading(false);
-    });
+    const unsub = listenRoutines(
+      user.uid,
+      (rows) => {
+        setRoutines(rows);
+        setLoading(false);
+      },
+      (err) => {
+        console.error("[listenRoutines] error:", err);
+        setLoading(false);
+        alert("No se pudieron leer tus rutinas (revisa reglas/permiso).");
+      }
+    );
     return () => unsub && unsub();
   }, [user]);
 
@@ -146,7 +154,8 @@ export default function Rutinas() {
     const items = parseItemsFromText(rawItems);
     if (!cleanName || items.length === 0) return;
     try {
-      await createRoutine(user.uid, { name: cleanName, items });
+      const id = await createRoutine(user.uid, { name: cleanName, items });
+      console.log("[createRoutine manual] id:", id);
       setName("");
       setRawItems("");
     } catch (err) {
@@ -211,7 +220,7 @@ export default function Rutinas() {
       if (items.length === 0) throw new Error("Plan vacío");
 
       const genName = `Rutina ${OBJETIVOS[norm.objetivo]} · ${FRECUENCIAS[norm.frecuencia]} · ${TIEMPOS[norm.tiempo]}`;
-      await createRoutine(user.uid, {
+      const newId = await createRoutine(user.uid, {
         name: genName,
         items,
         _meta: {
@@ -221,6 +230,7 @@ export default function Rutinas() {
           ...norm,
         },
       });
+      console.log("[createRoutine ML] id:", newId);
       alert("Rutina generada ✅");
     } catch (err) {
       console.error(err);

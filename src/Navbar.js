@@ -1,19 +1,20 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from './AuthContext';
-import './Register.css'; // estilos neón + light
+// src/Navbar.js
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "./AuthContext";
+import "./Register.css"; // estilos neón + light
 
 function classNames(...xs) {
-  return xs.filter(Boolean).join(' ');
+  return xs.filter(Boolean).join(" ");
 }
 
 function UserAvatar({ user }) {
   const fallback = useMemo(() => {
-    const src = user?.displayName || user?.email || 'U';
+    const src = user?.displayName || user?.email || "U";
     return src.trim().charAt(0).toUpperCase();
   }, [user]);
   return (
-    <div className="avatar" title={user?.email || 'Usuario'}>
+    <div className="avatar" title={user?.email || "Usuario"}>
       {fallback}
     </div>
   );
@@ -21,19 +22,28 @@ function UserAvatar({ user }) {
 
 // === Helpers de tema ===
 function readStoredTheme() {
-  try { return localStorage.getItem('fitlife:theme'); } catch { return null; }
+  try {
+    return localStorage.getItem("fitlife:theme");
+  } catch {
+    return null;
+  }
 }
 function storeTheme(v) {
-  try { localStorage.setItem('fitlife:theme', v); } catch {}
+  try {
+    localStorage.setItem("fitlife:theme", v);
+  } catch {}
 }
 function getSystemPref() {
-  if (typeof window === 'undefined') return 'dark';
-  return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
-    ? 'light'
-    : 'dark';
+  if (typeof window === "undefined") return "dark";
+  return window.matchMedia &&
+    window.matchMedia("(prefers-color-scheme: light)").matches
+    ? "light"
+    : "dark";
 }
 function applyThemeAttr(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
+  if (typeof document !== "undefined") {
+    document.documentElement.setAttribute("data-theme", theme);
+  }
 }
 
 export default function Navbar() {
@@ -42,17 +52,17 @@ export default function Navbar() {
   const [menuUserOpen, setMenuUserOpen] = useState(false);
   const [theme, setTheme] = useState(() => {
     const stored = readStoredTheme();
-    const initial = stored || getSystemPref() || 'dark';
-    if (typeof document !== 'undefined') applyThemeAttr(initial);
+    const initial = stored || getSystemPref() || "dark";
+    applyThemeAttr(initial);
     return initial;
   });
 
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Ocultar navbar en rutas de auth
-  const AUTH_PATHS = new Set(['/login', '/register', '/reset']);
-  if (AUTH_PATHS.has(location.pathname)) return null;
+  // ⛔️ NADA de returns condicionales: sólo calculamos el flag
+  const AUTH_PATHS = new Set(["/login", "/register", "/reset"]);
+  const isAuthRoute = AUTH_PATHS.has(location.pathname);
 
   // Cerrar menús al cambiar de ruta
   useEffect(() => {
@@ -63,63 +73,78 @@ export default function Navbar() {
   // Cerrar menús al hacer click fuera / Escape
   const userMenuRef = useRef(null);
   useEffect(() => {
-    function onDocClick(e) {
-      if (menuUserOpen && userMenuRef.current && !userMenuRef.current.contains(e.target)) {
+    const onDocClick = (e) => {
+      if (
+        menuUserOpen &&
+        userMenuRef.current &&
+        !userMenuRef.current.contains(e.target)
+      ) {
         setMenuUserOpen(false);
       }
-    }
-    function onEsc(e) { if (e.key === 'Escape') { setOpen(false); setMenuUserOpen(false); } }
-    document.addEventListener('mousedown', onDocClick);
-    document.addEventListener('keydown', onEsc);
+    };
+    const onEsc = (e) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        setMenuUserOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onEsc);
     return () => {
-      document.removeEventListener('mousedown', onDocClick);
-      document.removeEventListener('keydown', onEsc);
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onEsc);
     };
   }, [menuUserOpen]);
 
-  // Reaccionar si cambia el sistema (opcional)
+  // Reaccionar si cambia el sistema (cuando no hay preferencia guardada)
   useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: light)');
+    const mq = window.matchMedia("(prefers-color-scheme: light)");
     const handler = () => {
       const stored = readStoredTheme();
       if (!stored) {
-        const sys = mq.matches ? 'light' : 'dark';
+        const sys = mq.matches ? "light" : "dark";
         setTheme(sys);
         applyThemeAttr(sys);
       }
     };
-    mq.addEventListener?.('change', handler);
-    return () => mq.removeEventListener?.('change', handler);
+    // compat
+    mq.addEventListener ? mq.addEventListener("change", handler) : mq.addListener(handler);
+    return () => {
+      mq.removeEventListener ? mq.removeEventListener("change", handler) : mq.removeListener(handler);
+    };
   }, []);
 
   // Toggle de tema
   function toggleTheme() {
-    const next = theme === 'dark' ? 'light' : 'dark';
+    const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
     applyThemeAttr(next);
     storeTheme(next);
   }
 
-  // 🔹 Links (agregué Recomendadas)
+  // Links (con Mis Rutinas)
   const links = [
-    { to: '/', label: 'Inicio', public: true },
-    { to: '/rutina', label: 'Rutinas', private: true },
-    { to: '/recomendadas', label: 'Recomendadas', private: true }, // ← nuevo
-    { to: '/ejercicios', label: 'Ejercicios', private: true },
-    { to: '/dashboard', label: 'Progreso', private: true },
+    { to: "/", label: "Inicio", public: true },
+    { to: "/rutina", label: "Rutinas", private: true },
+    { to: "/recomendadas", label: "Recomendadas", private: true },
+    { to: "/mis-rutinas", label: "Mis Rutinas", private: true },
+    { to: "/ejercicios", label: "Ejercicios", private: true },
+    { to: "/dashboard", label: "Progreso", private: true },
   ];
 
   async function handleLogout() {
     try {
       await logout();
-      navigate('/login');
+      navigate("/login");
     } catch (e) {
       console.error(e);
+      alert("No se pudo cerrar sesión");
     }
   }
 
+  // En rutas de auth seguimos renderizando el <header>, pero oculto.
   return (
-    <header className="navbar">
+    <header className="navbar" style={isAuthRoute ? { display: "none" } : undefined}>
       <div className="navbar-inner">
         {/* Brand */}
         <NavLink to="/" className="brand">
@@ -130,13 +155,13 @@ export default function Navbar() {
         {/* Desktop nav */}
         <nav className="nav-links">
           {links
-            .filter(l => (l.private ? !!user : l.public))
+            .filter((l) => (l.private ? !!user : l.public))
             .map((l) => (
               <NavLink
                 key={l.to}
                 to={l.to}
                 className={({ isActive }) =>
-                  classNames('nav-link', isActive && 'nav-active')
+                  classNames("nav-link", isActive && "nav-active")
                 }
               >
                 {l.label}
@@ -149,11 +174,11 @@ export default function Navbar() {
           {/* Toggle de tema */}
           <button
             className="theme-toggle"
-            aria-label={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
-            title={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+            aria-label={theme === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+            title={theme === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
             onClick={toggleTheme}
           >
-            {theme === 'dark' ? '☀️' : '🌙'}
+            {theme === "dark" ? "☀️" : "🌙"}
           </button>
 
           {loading ? null : user ? (
@@ -167,13 +192,17 @@ export default function Navbar() {
               >
                 <UserAvatar user={user} />
               </button>
+
               {menuUserOpen && (
                 <div id="user-menu" className="menu-panel" role="menu">
-                  <button className="menu-item" onClick={() => navigate('/misdatos')}>
+                  <button className="menu-item" onClick={() => navigate("/misdatos")}>
                     Mi perfil
                   </button>
-                  <button className="menu-item" onClick={() => navigate('/dashboard')}>
+                  <button className="menu-item" onClick={() => navigate("/dashboard")}>
                     Dashboard
+                  </button>
+                  <button className="menu-item" onClick={() => navigate("/mis-rutinas")}>
+                    Mis Rutinas
                   </button>
                   <hr className="menu-sep" />
                   <button className="menu-item danger" onClick={handleLogout}>
@@ -184,8 +213,12 @@ export default function Navbar() {
             </div>
           ) : (
             <div className="auth-buttons">
-              <NavLink to="/login" className="btn-secondary">Iniciar sesión</NavLink>
-              <NavLink to="/register" className="btn-primary">Crear cuenta</NavLink>
+              <NavLink to="/login" className="btn-secondary">
+                Iniciar sesión
+              </NavLink>
+              <NavLink to="/register" className="btn-primary">
+                Crear cuenta
+              </NavLink>
             </div>
           )}
 
@@ -205,17 +238,17 @@ export default function Navbar() {
       </div>
 
       {/* Mobile menu */}
-      {open && (
+      {open && !isAuthRoute && (
         <div id="mobile-menu" className="mobile-menu" role="dialog" aria-modal="true">
           <nav className="mobile-links" onClick={() => setOpen(false)}>
             {links
-              .filter(l => (l.private ? !!user : l.public))
+              .filter((l) => (l.private ? !!user : l.public))
               .map((l) => (
                 <NavLink
                   key={l.to}
                   to={l.to}
                   className={({ isActive }) =>
-                    classNames('mobile-link', isActive && 'mobile-active')
+                    classNames("mobile-link", isActive && "mobile-active")
                   }
                 >
                   {l.label}
@@ -225,8 +258,12 @@ export default function Navbar() {
 
           {!loading && !user && (
             <div className="mobile-auth">
-              <NavLink to="/login" className="btn-secondary block">Iniciar sesión</NavLink>
-              <NavLink to="/register" className="btn-primary block">Crear cuenta</NavLink>
+              <NavLink to="/login" className="btn-secondary block">
+                Iniciar sesión
+              </NavLink>
+              <NavLink to="/register" className="btn-primary block">
+                Crear cuenta
+              </NavLink>
             </div>
           )}
 
@@ -235,16 +272,20 @@ export default function Navbar() {
               <div className="mobile-user-row">
                 <UserAvatar user={user} />
                 <div className="mobile-user-info">
-                  <div className="mobile-user-name">{user.displayName || 'Usuario'}</div>
+                  <div className="mobile-user-name">{user.displayName || "Usuario"}</div>
                   <div className="mobile-user-email">{user.email}</div>
                 </div>
               </div>
+
               <div className="mobile-user-actions">
-                <button className="menu-item" onClick={() => navigate('/misdatos')}>
+                <button className="menu-item" onClick={() => navigate("/misdatos")}>
                   Mi perfil
                 </button>
-                <button className="menu-item" onClick={() => navigate('/dashboard')}>
+                <button className="menu-item" onClick={() => navigate("/dashboard")}>
                   Dashboard
+                </button>
+                <button className="menu-item" onClick={() => navigate("/mis-rutinas")}>
+                  Mis Rutinas
                 </button>
                 <button className="menu-item danger" onClick={handleLogout}>
                   Cerrar sesión
@@ -257,4 +298,3 @@ export default function Navbar() {
     </header>
   );
 }
-

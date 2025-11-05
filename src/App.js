@@ -12,22 +12,23 @@ import { AuthProvider, useAuth } from "./AuthContext";
 import { ThemeProvider } from "./theme";
 import { ToastProvider } from "./useToast";
 
-// 👉 Toastify (nuevo)
+// 👉 Toastify (notificaciones globales)
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
-// === IMPORTS DIRECTOS (evitan el error en /login y /register) ===
+// === IMPORTS DIRECTOS (páginas principales) ===
 import Navbar from "./Navbar";
 import Home from "./Home";
 import Login from "./Login";
 import Register from "./Register";
 import MisDatos from "./MisDatos";
 import Ejercicios from "./Ejercicios";
+import MisRutinas from "./pages/MisRutinas"; // 👈 Nueva página añadida
 
-// === LAZY SOLO EN PÁGINAS PESADAS QUE EXISTEN ===
+// === LAZY (para carga diferida de módulos pesados) ===
 const Dashboard = lazy(() => import("./pages/Dashboard"));
-const Rutinas = lazy(() => import("./services/Rutinas")); // <- ruta real
-const Recomendadas = lazy(() => import("./pages/RutinasRecomendadas")); // <- ruta real
+const Rutinas = lazy(() => import("./services/Rutinas")); // Ruta real
+const Recomendadas = lazy(() => import("./pages/RutinasRecomendadas"));
 const SeedAdminFirestore = lazy(() => import("./SeedAdminFirestore"));
 const SeedRoutinesFromJSON = lazy(() => import("./SeedRoutinesFromJSON"));
 
@@ -64,19 +65,20 @@ function LoadingScreen() {
   );
 }
 
-// Rutas protegidas
+// ===== Rutas protegidas =====
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   return user ? children : <Navigate to="/login" replace />;
 }
+
 function PublicOnlyRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   return user ? <Navigate to="/dashboard" replace /> : children;
 }
 
-// Admin
+// ===== Rutas admin =====
 const ALLOWED_ADMINS = ["XbuiurTJjLRMZpKojLRyC1d0dRa2"];
 function AdminRoute({ children }) {
   const { user, loading } = useAuth();
@@ -87,7 +89,7 @@ function AdminRoute({ children }) {
     : <Navigate to="/dashboard" replace />;
 }
 
-// Ocultar navbar en auth
+// Ocultar navbar en páginas de autenticación
 const AUTH_PATHS = new Set(["/login", "/register", "/reset"]);
 
 function AppShell() {
@@ -101,7 +103,7 @@ function AppShell() {
 
       <Suspense fallback={<LoadingScreen />}>
         <Routes>
-          {/* Públicas */}
+          {/* === Públicas === */}
           <Route path="/" element={<Home />} />
           <Route
             path="/login"
@@ -128,7 +130,7 @@ function AppShell() {
             }
           />
 
-          {/* Privadas */}
+          {/* === Privadas === */}
           <Route
             path="/misdatos"
             element={
@@ -169,8 +171,17 @@ function AppShell() {
               </PrivateRoute>
             }
           />
+          {/* ✅ Nueva ruta “Mis Rutinas” */}
+          <Route
+            path="/mis-rutinas"
+            element={
+              <PrivateRoute>
+                <MisRutinas />
+              </PrivateRoute>
+            }
+          />
 
-          {/* Admin */}
+          {/* === Admin === */}
           <Route
             path="/seed-admin-fs"
             element={
@@ -188,7 +199,7 @@ function AppShell() {
             }
           />
 
-          {/* 404 */}
+          {/* === 404 === */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>

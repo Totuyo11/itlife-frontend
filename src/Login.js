@@ -1,39 +1,49 @@
 // src/pages/Login.jsx
-import React, { useState } from 'react';
-import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
-import { Link, useNavigate } from 'react-router-dom';
-import './Login.css';               // ← usa tu CSS (puede ser el que enviaste)
-import hero from './assets/fitlife-hero.jpg'; // ← ajusta la ruta si cambia
+import React, { useState } from "react";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { Link, useNavigate } from "react-router-dom";
+
+// 🔧 Ajusta estas rutas si tu CSS/imagen viven en otro lado
+import "./Register.css"; // o "../Login.css" si tienes un CSS específico
+import hero from "./assets/fitlife-hero.jpg";
+
+import { auth } from "./firebase";
 
 const mapError = (code) => {
   switch (code) {
-    case 'auth/invalid-email': return 'Correo inválido.';
-    case 'auth/user-disabled': return 'Tu cuenta está deshabilitada.';
-    case 'auth/user-not-found': return 'No existe una cuenta con ese correo.';
-    case 'auth/wrong-password': return 'Contraseña incorrecta.';
-    case 'auth/too-many-requests': return 'Demasiados intentos. Intenta más tarde.';
-    default: return 'No pudimos iniciar sesión. Revisa tus datos.';
+    case "auth/invalid-email":
+      return "Correo inválido.";
+    case "auth/user-disabled":
+      return "Tu cuenta está deshabilitada.";
+    case "auth/user-not-found":
+      return "No existe una cuenta con ese correo.";
+    case "auth/wrong-password":
+    case "auth/invalid-credential":
+      return "Contraseña incorrecta.";
+    case "auth/too-many-requests":
+      return "Demasiados intentos. Intenta más tarde.";
+    default:
+      return "No pudimos iniciar sesión. Revisa tus datos.";
   }
 };
 
 export default function Login() {
-  const [correo, setCorreo] = useState('');
-  const [contraseña, setContraseña] = useState('');
-  const [mensaje, setMensaje] = useState('');
-  const [error, setError] = useState('');
+  const nav = useNavigate();
+  const [correo, setCorreo] = useState("");
+  const [contraseña, setContraseña] = useState("");
+  const [mensaje, setMensaje] = useState("");
+  const [error, setError] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
 
   function validar() {
     if (!correo.trim() || !contraseña) {
-      setError('❌ Completa correo y contraseña.');
+      setError("❌ Completa correo y contraseña.");
       return false;
     }
-    // validación simple de email
     const re = /\S+@\S+\.\S+/;
     if (!re.test(correo.trim())) {
-      setError('❌ Correo inválido.');
+      setError("❌ Correo inválido.");
       return false;
     }
     return true;
@@ -41,16 +51,17 @@ export default function Login() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setError(''); setMensaje('');
+    setError("");
+    setMensaje("");
     if (!validar()) return;
 
     setLoading(true);
     try {
-      const auth = getAuth();
       await signInWithEmailAndPassword(auth, correo.trim(), contraseña);
-      setMensaje('✅ ¡Bienvenido de nuevo!');
-      setTimeout(() => navigate('/dashboard'), 400);
+      setMensaje("✅ ¡Bienvenido de nuevo!");
+      setTimeout(() => nav("/dashboard"), 400);
     } catch (err) {
+      console.error(err);
       setError(`❌ ${mapError(err.code)}`);
     } finally {
       setLoading(false);
@@ -68,8 +79,8 @@ export default function Login() {
             radial-gradient(800px 400px at 110% 110%, rgba(109,40,217,.25), transparent 55%),
             url(${hero})
           `,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center'
+          backgroundSize: "cover",
+          backgroundPosition: "center",
         }}
       >
         <div className="aside-overlay">
@@ -99,12 +110,18 @@ export default function Login() {
           <div className="form-box form-deco" aria-busy={loading}>
             <div className="brand-mini">🏋️ FitLife</div>
             <h2 className="titulo-login">Iniciar sesión</h2>
-            <p className="subtitle">Entrena mejor, mide tu progreso y alcanza tus metas.</p>
+            <p className="subtitle">
+              Entrena mejor, mide tu progreso y alcanza tus metas.
+            </p>
 
-            <div className="or-divider" aria-hidden="true"><span>Bienvenido</span></div>
+            <div className="or-divider" aria-hidden="true">
+              <span>Bienvenido</span>
+            </div>
 
             <form onSubmit={handleSubmit} className="registro-form" noValidate>
-              <label className="sr-only" htmlFor="email">Correo</label>
+              <label className="sr-only" htmlFor="email">
+                Correo
+              </label>
               <input
                 id="email"
                 type="email"
@@ -117,10 +134,12 @@ export default function Login() {
               />
 
               <div className="input-group">
-                <label className="sr-only" htmlFor="pass">Contraseña</label>
+                <label className="sr-only" htmlFor="pass">
+                  Contraseña
+                </label>
                 <input
                   id="pass"
-                  type={showPass ? 'text' : 'password'}
+                  type={showPass ? "text" : "password"}
                   autoComplete="current-password"
                   placeholder="Contraseña"
                   value={contraseña}
@@ -131,29 +150,42 @@ export default function Login() {
                 <button
                   type="button"
                   className="toggle-pass"
-                  onClick={() => setShowPass(s => !s)}
-                  aria-label={showPass ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  onClick={() => setShowPass((s) => !s)}
+                  aria-label={showPass ? "Ocultar contraseña" : "Mostrar contraseña"}
                   disabled={loading}
                 >
-                  {showPass ? 'No Mostrar' : 'Mostrar'}
+                  {showPass ? "No Mostrar" : "Mostrar"}
                 </button>
               </div>
 
-              <button type="submit" className={loading ? 'btn loading' : 'btn'} disabled={loading}>
-                {loading ? 'Entrando…' : 'Entrar'}
+              <button
+                type="submit"
+                className={loading ? "btn loading" : "btn"}
+                disabled={loading}
+              >
+                {loading ? "Entrando…" : "Entrar"}
               </button>
 
-              {mensaje && <p className="mensaje ok" role="status">{mensaje}</p>}
-              {error && <p className="mensaje error" role="alert">{error}</p>}
+              {mensaje && (
+                <p className="mensaje ok" role="status">
+                  {mensaje}
+                </p>
+              )}
+              {error && (
+                <p className="mensaje error" role="alert">
+                  {error}
+                </p>
+              )}
 
               <div className="extras">
-                <Link to="/reset" className="link">¿Olvidaste tu contraseña?</Link>
+                <Link to="/reset" className="link">
+                  ¿Olvidaste tu contraseña?
+                </Link>
                 <span className="sep">•</span>
-                {/* Usamos botón-as-link para evitar cualquier overlay que bloquee el click */}
                 <button
                   type="button"
                   className="link as-button"
-                  onClick={() => navigate('/register')}
+                  onClick={() => nav("/register")}
                   aria-label="Crear cuenta nueva"
                 >
                   Crear cuenta

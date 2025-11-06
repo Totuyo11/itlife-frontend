@@ -2186,3 +2186,322 @@ body {
     display: flex;
   }
 }
+/* === SHOWCASE "fillable" (no navegación, se llena con texto) === */
+.show-box--fillable {
+  cursor: pointer;
+  outline: none;
+  position: relative;
+  border: 1px solid rgba(255,255,255,0.06);
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease;
+}
+
+.show-box--fillable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(109,40,217,.28), 0 0 50px rgba(255,64,129,.18) inset;
+}
+
+.show-box--fillable:focus-visible {
+  box-shadow: 0 0 0 3px rgba(168,85,247,.65), 0 0 30px rgba(168,85,247,.35);
+  border-color: rgba(168,85,247,.8);
+}
+
+.show-tag {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.show-tag-arrow {
+  opacity: .6;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+
+.show-desc {
+  font-size: .9rem;
+  opacity: .85;
+  margin-top: .5rem;
+}
+
+/* Contenido textual al “llenar” */
+.show-fill {
+  margin-top: .75rem;
+  padding: .75rem .9rem;
+  background: linear-gradient(180deg, rgba(168,85,247,.12), rgba(30,27,75,.2));
+  border: 1px solid rgba(168,85,247,.35);
+  border-radius: .8rem;
+  box-shadow: inset 0 0 40px rgba(109,40,217,.22);
+  animation: fillIn .22s ease;
+}
+
+.show-fill h4 {
+  margin: 0 0 .35rem 0;
+  font-size: 1rem;
+  letter-spacing: .2px;
+}
+
+.show-fill ul {
+  margin: 0 0 .4rem 1rem;
+  padding-left: .8rem;
+}
+
+.show-fill li {
+  margin: .2rem 0;
+  line-height: 1.35;
+}
+
+.show-fill .hint {
+  font-size: .8rem;
+  opacity: .7;
+}
+
+/* Efecto suave cuando se activa */
+@keyframes fillIn {
+  from { transform: translateY(6px); opacity: 0; }
+  to   { transform: translateY(0);  opacity: 1; }
+}
+
+/* Figs respiran al hover y se atenúan cuando está lleno */
+.show-box--fillable .show-fig { transition: transform .25s ease, opacity .25s ease; }
+.show-box--fillable:hover .show-fig { transform: scale(1.02); }
+.show-box--fillable.is-filled .show-fig { opacity: .85; }
+/* Tarjetas del showcase con texto permanente */
+.show-content {
+  margin-top: 0.7rem;
+  padding: 0.8rem 1rem;
+  background: linear-gradient(180deg, rgba(168,85,247,.08), rgba(30,27,75,.15));
+  border-radius: 0.8rem;
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: inset 0 0 30px rgba(109,40,217,.15);
+  transition: transform .25s ease, box-shadow .25s ease;
+}
+
+.show-content h4 {
+  font-size: 1rem;
+  margin-bottom: 0.4rem;
+  color: #fff;
+}
+
+.show-content p {
+  font-size: 0.9rem;
+  line-height: 1.45;
+  opacity: 0.85;
+}
+
+.show-box:hover .show-content {
+  transform: translateY(-3px);
+  box-shadow: inset 0 0 40px rgba(255,64,129,.2);
+}
+/* === Ajuste fino del texto dentro de las tarjetas === */
+.showcase-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.6rem;
+  align-items: stretch;
+}
+
+/* contenedor de cada tarjeta */
+.show-box {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 95%;
+  min-height: 100px;
+  border-radius: 0.9rem;
+  overflow: hidden;
+  position: relative;
+}
+
+/* sección del texto */
+.show-content {
+  margin-top: auto;
+  padding: 1.5rem 1.5rem;
+  background: linear-gradient(180deg, rgba(168,85,247,.08), rgba(30,27,75,.18));
+  border-radius: 0 0 0.9rem 0.9rem;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  backdrop-filter: blur(6px);
+  text-align: left;
+}
+
+/* tipografía */
+.show-content h4 {
+  font-size: 1rem;
+  margin-bottom: 0.3rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #fff;
+}
+
+.show-content p {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  opacity: 0.85;
+}
+
+/* equilibrio visual: hace que todos los bloques midan lo mismo */
+.show-box .show-fig {
+  flex: 1;
+}
+
+/* sutil glow cuando pasas el cursor */
+.show-box:hover .show-content {
+  box-shadow: 0 0 25px rgba(168,85,247,0.25);
+  transform: translateY(-2px);
+  transition: all 0.25s ease;
+}
+/* === Testimonios dinámicos === */
+.testi-rotator {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 160px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.testi-card {
+  max-width: 640px;
+  margin: auto;
+  background: rgba(255,255,255,0.04);
+  border-radius: 1rem;
+  padding: 1.5rem 2rem;
+  border: 1px solid rgba(255,255,255,0.06);
+  box-shadow: 0 0 40px rgba(168,85,247,0.18);
+}
+
+.testi-card blockquote {
+  font-size: 1.1rem;
+  line-height: 1.6;
+  color: #fff;
+  opacity: 0.9;
+}
+
+.testi-card figcaption {
+  margin-top: 1rem;
+  font-size: 0.95rem;
+  opacity: 0.75;
+}
+
+/* Animación de cambio */
+.fade-in { animation: fadeIn .8s ease forwards; }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+/* Mis testimonios en perfil */
+.testi-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: .8rem;
+}
+.testi-item {
+  padding: 1rem;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: .9rem;
+  background: rgba(255,255,255,.04);
+  box-shadow: 0 0 20px rgba(168,85,247,.12);
+}
+.testi-text { font-size: .95rem; line-height: 1.5; opacity: .92; }
+.testi-meta { margin-top: .3rem; font-size: .85rem; opacity: .7; }
+.chip-btn.danger {
+  margin-top: .6rem;
+  border: 1px solid rgba(244,63,94,.65);
+  background: rgba(244,63,94,.12);
+}
+/* === SHOWCASE SECTION (Dashboard / Rutinas / Progreso) === */
+.showcase-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin-top: 2rem;
+}
+
+.show-box {
+  position: relative;
+  border-radius: 1.5rem;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 30px rgba(168, 85, 247, 0.15);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 280px;
+}
+
+.show-box:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 0 45px rgba(168, 85, 247, 0.25);
+}
+
+.show-tag {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: rgba(168, 85, 247, 0.2);
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  border-radius: 0.75rem;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+  color: #fff;
+}
+
+.show-fig {
+  width: 100%;
+  height: 160px;
+  background-size: cover;
+  background-position: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.show-fig-1 {
+  background-image: linear-gradient(to bottom right, rgba(255,64,129,0.25), rgba(109,40,217,0.3));
+}
+
+.show-fig-2 {
+  background-image: linear-gradient(to bottom right, rgba(109,40,217,0.25), rgba(255,64,129,0.25));
+}
+
+.show-fig-3 {
+  background-image: linear-gradient(to bottom right, rgba(64,224,208,0.25), rgba(109,40,217,0.25));
+}
+
+.show-content {
+  padding: 1.25rem 1.5rem;
+}
+
+.show-content h4 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 0.5rem;
+}
+
+.show-content p {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* === Compatibilidad con modo claro === */
+[data-theme="light"] .show-box {
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: 0 0 20px rgba(109, 40, 217, 0.08);
+}
+
+[data-theme="light"] .show-content p {
+  color: rgba(0, 0, 0, 0.75);
+}
+
+[data-theme="light"] .show-tag {
+  background: rgba(109, 40, 217, 0.1);
+  border: 1px solid rgba(109, 40, 217, 0.3);
+  color: #4b0082;
+}

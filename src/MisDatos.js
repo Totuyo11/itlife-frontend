@@ -14,9 +14,19 @@ import {
   query,
   orderBy,
   limit,
+  onSnapshot,
+  serverTimestamp,
+  deleteDoc,
 } from "firebase/firestore";
-import { sendPasswordResetEmail } from "firebase/auth";
+import {
+  sendPasswordResetEmail,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  updatePassword,
+} from "firebase/auth";
 import { auth, db } from "./firebase";
+import { addPublicTestimonial } from "./services/publicTestimonials";
+import { liveKpiBus } from "./state/liveKpiBus"; // LIVE KPIs
 
 function Avatar({ name, email }) {
   const ch = useMemo(() => {
@@ -39,6 +49,85 @@ function bmiCategory(bmi) {
   return { label: "Obesidad", cls: "bmi-high" };
 }
 
+/** ====== Componente embebido: Cambiar contraseña ====== */
+function ChangePasswordCard() {
+  const [current, setCurrent] = useState("");
+  const [next1, setNext1] = useState("");
+  const [next2, setNext2] = useState("");
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleChange(e) {
+    e.preventDefault();
+    setMsg("");
+    setErr("");
+    setLoading(true);
+    try {
+      const user = auth.currentUser;
+      if (!user?.email) throw new Error("Sesión inválida. Vuelve a iniciar sesión.");
+      if (next1.length < 6) throw new Error("La contraseña nueva debe tener 6+ caracteres.");
+      if (next1 !== next2) throw new Error("Las contraseñas no coinciden.");
+
+      // Reautenticación requerida por seguridad
+      const cred = EmailAuthProvider.credential(user.email, current);
+      await reauthenticateWithCredential(user, cred);
+
+      await updatePassword(user, next1);
+      setMsg("¡Contraseña actualizada! Si usas otros dispositivos, vuelve a iniciar sesión ahí.");
+      setCurrent(""); setNext1(""); setNext2("");
+    } catch (e) {
+      console.error(e);
+      setErr(e.message || "No se pudo cambiar la contraseña.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="profile-card">
+      <h2 className="card-title">Cambiar contraseña</h2>
+      <form className="rtn-row" onSubmit={handleChange}>
+        <label>Contraseña actual</label>
+        <input
+          className="rtn-input"
+          type="password"
+          value={current}
+          onChange={(e) => setCurrent(e.target.value)}
+          placeholder="••••••••"
+        />
+        <label>Nueva contraseña</label>
+        <input
+          className="rtn-input"
+          type="password"
+          value={next1}
+          onChange={(e) => setNext1(e.target.value)}
+          placeholder="••••••••"
+        />
+        <label>Confirmar nueva contraseña</label>
+        <input
+          className="rtn-input"
+          type="password"
+          value={next2}
+          onChange={(e) => setNext2(e.target.value)}
+          placeholder="••••••••"
+        />
+        <div className="rtn-actions">
+          <button className="btn" disabled={loading}>
+            {loading ? "Guardando…" : "Actualizar"}
+          </button>
+        </div>
+      </form>
+      {msg && <p className="mensaje ok">{msg}</p>}
+      {err && <p className="mensaje error">{err}</p>}
+      <small className="profile-hint">
+        Consejo: usa una contraseña única. Si Chrome te muestra un aviso de filtración, cámbiala aquí.
+      </small>
+    </div>
+  );
+}
+
+/** ====== Componente principal: MisDatos ====== */
 export default function MisDatos() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -57,6 +146,11 @@ export default function MisDatos() {
   const [theme, setTheme] = useState(
     () => localStorage.getItem("fitlife:theme") || "dark"
   );
+
+  // Testimonios
+  const [testiText, setTestiText] = useState("");
+  const [testiList, setTestiList] = useState([]); // escucha en tiempo real
+  const [publishPublic, setPublishPublic] = useState(true);
 
   // Cargar perfil + último peso
   useEffect(() => {
@@ -93,11 +187,27 @@ export default function MisDatos() {
       const wsnap = await getDocs(qW);
       if (!wsnap.empty) {
         const d = wsnap.docs[0].data();
-        if (typeof d.kg === "number") setLastWeight(d.kg);
+        if (typeof d.kg === "number") {
+          setLastWeight(d.kg);
+          // Empuja el valor inicial al bus para el héroe
+          liveKpiBus.setWeightKg(d.kg);
+        }
       }
 
       setLoading(false);
     })();
+  }, [user]);
+
+  // Escuchar testimonios del usuario en tiempo real
+  useEffect(() => {
+    if (!user) return;
+    const colRef = collection(db, "users", user.uid, "testimonios");
+    const qRef = query(colRef, orderBy("creado", "desc"));
+    const unsub = onSnapshot(qRef, (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setTestiList(list);
+    });
+    return () => unsub();
   }, [user]);
 
   // Aplicar tema
@@ -152,7 +262,8 @@ export default function MisDatos() {
         kg,
         at: Timestamp.now(),
       });
-      setLastWeight(kg); // actualiza base para IMC
+      setLastWeight(kg);         // actualiza base para IMC
+      liveKpiBus.setWeightKg(kg); // asegura sincronía inmediata con el héroe
       setWeightToday("");
       alert("Peso guardado ✅");
     } catch (err) {
@@ -175,6 +286,52 @@ export default function MisDatos() {
   const currentWeight = weightToday ? Number(weightToday) : lastWeight;
   const bmi = calcBMI(currentWeight, Number(heightM));
   const bmiInfo = bmiCategory(bmi);
+
+  // ---- Testimonios: agregar y borrar ----
+  async function addTestimonial(e) {
+    e.preventDefault();
+    const texto = testiText.trim();
+    if (!texto) {
+      alert("Escribe tu testimonio antes de guardar.");
+      return;
+    }
+    try {
+      // Guarda en tu subcolección privada
+      await addDoc(collection(db, "users", user.uid, "testimonios"), {
+        nombre: displayName || user.displayName || user.email,
+        texto,
+        creado: serverTimestamp(),
+      });
+
+      // Publicar en colección pública si está marcado
+      if (publishPublic) {
+        await addPublicTestimonial({
+          userId: user.uid,
+          nombre: displayName || user.displayName || user.email,
+          texto,
+          approved: true,
+        });
+      }
+
+      setTestiText("");
+      alert("¡Gracias! Testimonio agregado ✅");
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo guardar el testimonio.");
+    }
+  }
+
+  async function removeTestimonial(id) {
+    if (!id) return;
+    const ok = window.confirm("¿Eliminar este testimonio?");
+    if (!ok) return;
+    try {
+      await deleteDoc(doc(db, "users", user.uid, "testimonios", id));
+    } catch (err) {
+      console.error(err);
+      alert("No se pudo eliminar.");
+    }
+  }
 
   return (
     <div className="profile-wrap">
@@ -273,7 +430,7 @@ export default function MisDatos() {
                 className="btn-secondary"
                 onClick={onResetPassword}
               >
-                Restablecer contraseña
+                Restablecer contraseña por correo
               </button>
             </div>
           </form>
@@ -291,7 +448,16 @@ export default function MisDatos() {
               step="0.1"
               placeholder="Ej. 80.2"
               value={weightToday}
-              onChange={(e) => setWeightToday(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setWeightToday(v);
+                // Draft al héroe en tiempo real
+                liveKpiBus.setWeightKg(v);
+              }}
+              onBlur={() => {
+                // Si limpian el campo, regresa al último guardado
+                if (!weightToday) liveKpiBus.setWeightKg(lastWeight ?? null);
+              }}
             />
           </div>
 
@@ -325,8 +491,58 @@ export default function MisDatos() {
             </ul>
           </div>
         </div>
+
+        {/* Card: Mis testimonios */}
+        <div className="profile-card">
+          <h2 className="card-title">Mis testimonios</h2>
+
+          <form className="rtn-row" onSubmit={addTestimonial}>
+            <label>Agregar testimonio</label>
+            <textarea
+              className="rtn-input"
+              rows={3}
+              placeholder="Escribe cómo FitLife te ha ayudado…"
+              value={testiText}
+              onChange={(e) => setTestiText(e.target.value)}
+            />
+            {/* Checkbox para publicar en colección pública */}
+            <label className="row-inline" style={{ marginTop: ".5rem" }}>
+              <input
+                type="checkbox"
+                checked={publishPublic}
+                onChange={(e) => setPublishPublic(e.target.checked)}
+              />
+              <span style={{ marginLeft: 8 }}>Compartir públicamente</span>
+            </label>
+            <div className="rtn-actions">
+              <button className="btn" type="submit">Guardar</button>
+            </div>
+          </form>
+
+          <div className="divider" />
+
+          {testiList.length === 0 ? (
+            <div className="rtn-empty">
+              <div className="rtn-empty-ico">💬</div>
+              <div className="rtn-empty-title">Sin testimonios aún</div>
+              <div className="rtn-empty-sub">Agrega el primero para mostrarlo en el Home.</div>
+            </div>
+          ) : (
+            <ul className="testi-list">
+              {testiList.map((t) => (
+                <li key={t.id} className="testi-item">
+                  <div className="testi-text">“{t.texto}”</div>
+                  <div className="testi-meta">— {t.nombre || "Tú"}</div>
+                  <button className="chip-btn danger" onClick={() => removeTestimonial(t.id)}>Eliminar</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Card: Cambiar contraseña */}
+        <ChangePasswordCard />
       </section>
     </div>
   );
 }
-

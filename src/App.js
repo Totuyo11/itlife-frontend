@@ -27,7 +27,7 @@ import MisRutinas from "./pages/MisRutinas"; // 👈 Nueva página añadida
 
 // === LAZY (para carga diferida de módulos pesados) ===
 const Dashboard = lazy(() => import("./pages/Dashboard"));
-const Rutinas = lazy(() => import("./services/Rutinas")); // Ruta real
+const Rutinas = lazy(() => import("./services/Rutinas")); // ✅ Ruta corregida
 const Recomendadas = lazy(() => import("./pages/RutinasRecomendadas"));
 const SeedAdminFirestore = lazy(() => import("./SeedAdminFirestore"));
 const SeedRoutinesFromJSON = lazy(() => import("./SeedRoutinesFromJSON"));
@@ -131,6 +131,7 @@ function AppShell() {
           />
 
           {/* === Privadas === */}
+          {/* Alias de Mis Datos: /misdatos y /mis-datos */}
           <Route
             path="/misdatos"
             element={
@@ -139,6 +140,11 @@ function AppShell() {
               </PrivateRoute>
             }
           />
+          <Route
+            path="/mis-datos"
+            element={<Navigate to="/misdatos" replace />}
+          />
+
           <Route
             path="/rutina"
             element={

@@ -184,7 +184,27 @@ export default function Register() {
                   onChange={(e) => setAcepto(e.target.checked)}
                   disabled={loading}
                 />
-                <span>Acepto los <a className="link" href="#" onClick={(e)=>e.preventDefault()}>Términos</a> y la <a className="link" href="#" onClick={(e)=>e.preventDefault()}>Política de privacidad</a>.</span>
+                <span>
+                  Acepto los{' '}
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={(e) => e.preventDefault()}
+                    style={{ background: 'none', border: 'none', padding: 0, color: 'inherit', textDecoration: 'underline', cursor: 'pointer' }}
+                  >
+                    Términos
+                  </button>{' '}
+                  y la{' '}
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={(e) => e.preventDefault()}
+                    style={{ background: 'none', border: 'none', padding: 0, color: 'inherit', textDecoration: 'underline', cursor: 'pointer' }}
+                  >
+                    Política de privacidad
+                  </button>
+                  .
+                </span>
               </label>
 
               <button type="submit" className={loading ? 'btn loading' : 'btn'} disabled={loading}>
@@ -207,4 +227,3 @@ export default function Register() {
     </div>
   );
 }
-

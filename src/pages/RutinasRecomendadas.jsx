@@ -1,324 +1,302 @@
-// src/pages/Recomendadas.js
+// src/pages/RutinasRecomendadas.js
 import React, { useState } from "react";
-import { useAuth } from "../AuthContext";
-import { recommendRoutines } from "../recommender";
-import { createRoutine } from "../services/routines";
 import "../Register.css";
+import { useAuth } from "../AuthContext";
+import { toast } from "react-toastify";
 
-const API = process.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
+import { validarInputs, recommendRoutines } from "../recommender";
+import { createRoutineWithToast } from "../services/routines";
 
-// -------- Helpers de mapeo (form -> ints que espera el modelo) ----------
-function mapObjetivo(goal) {
-  // backend: 1 perder_peso, 2 ganar_musculo, 3 hiit, 4 recomposición/salud
-  return { perder_peso: 1, ganar_musculo: 2, hiit: 3, salud: 4 }[goal] ?? 4;
-}
-function mapDificultad(exp) {
-  // 1 novato, 2 intermedio, 3 avanzado
-  return { novato: 1, intermedio: 2, avanzado: 3 }[exp] ?? 1;
-}
-function mapTiempo(minutes) {
-  // 1: 30-45, 2: 60-90, 3: 120-180
-  if (minutes <= 45) return 1;
-  if (minutes <= 90) return 2;
-  return 3;
-}
-// quick default frequency/limitacion (ajústalo cuando agregues controles)
-const mapFrecuencia = () => 2; // 3-4 días
-const mapLimitacion = () => 4; // ninguna
+// Opciones UI
+const OBJETIVOS = [
+  { value: 1, label: "Perder peso" },
+  { value: 2, label: "Ganar músculo" },
+  { value: 3, label: "HIIT" },
+  { value: 4, label: "Recomposición" },
+];
+const EXPERIENCIA = [
+  { value: 0, label: "Novato" },
+  { value: 1, label: "Intermedio" },
+  { value: 2, label: "Avanzado" },
+  { value: 3, label: "Pro" },
+];
+const TIEMPO = [
+  { value: 1, label: "10-20 min" },
+  { value: 2, label: "20-30 min" },
+  { value: 3, label: "30-45 min" },
+  { value: 4, label: "45-60 min" },
+];
 
-async function callMLAPI({ objetivo, dificultad, limitacion, tiempo, frecuencia }) {
-  const res = await fetch(`${API}/predict`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ objetivo, dificultad, limitacion, tiempo, frecuencia }),
-  });
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`ML API ${res.status} ${txt}`);
-  }
-  return res.json(); // { focus_plan, scheme, metadata }
-}
-
-export default function Recomendadas() {
+export default function RutinasRecomendadas() {
   const { user } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [recs, setRecs] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [saving, setSaving] = useState(false);
 
-  const [params, setParams] = useState({
-    sex: "any",
-    age: 22,
-    experience: "novato",
-    minutes: 30,
-    goal: "salud",
+  const [form, setForm] = useState({
+    sexo: 0,
+    edad: 25,
+    dificultad: 0,
+    tiempo: 3,
+    objetivo: 1,
   });
+
+  const [loading, setLoading] = useState(false);
+  const [saving3, setSaving3] = useState(false);
+  const [results, setResults] = useState([]);
+
+  // Modal de detalles
+  const [open, setOpen] = useState(false);
+  const [detail, setDetail] = useState(null);
 
   async function onRecommend(e) {
-    e.preventDefault();
-    if (!user) {
-      alert("Inicia sesión primero");
-      return;
-    }
+    e?.preventDefault?.();
+    const norm = validarInputs({
+      objetivo: form.objetivo,
+      dificultad: form.dificultad,
+      limitacion: 0,
+      tiempo: form.tiempo,
+      frecuencia: 3,
+    });
+
     setLoading(true);
     try {
-      // 1) Algoritmo local
-      const localRows = await recommendRoutines({
-        uid: user.uid,
-        ...params,
-        topN: 5,
-      });
-
-      // 2) Modelo IA (FastAPI)
-      let mlCard = null;
-      try {
-        const payload = {
-          objetivo: mapObjetivo(params.goal),
-          dificultad: mapDificultad(params.experience),
-          limitacion: mapLimitacion(),
-          tiempo: mapTiempo(params.minutes),
-          frecuencia: mapFrecuencia(),
-        };
-        const ml = await callMLAPI(payload);
-
-        // Aplanamos el focus_plan (por si viene como [[...],[...]])
-        const focusFlat = Array.isArray(ml?.focus_plan)
-          ? ml.focus_plan.flat()
-          : [];
-
-        // Construimos blocks para mostrar ejercicios/resumen por día/foco
-        const blocks =
-          Array.isArray(ml?.focus_plan) && ml.scheme
-            ? ml.focus_plan.map((grupo, i) => ({
-                bodyPart: `Día ${i + 1}`,
-                exercise: Array.isArray(grupo) ? grupo.join(" + ") : String(grupo || ""),
-                sets: ml.scheme.series ?? "?",
-                reps: ml.scheme.reps ?? "?",
-              }))
-            : [];
-
-        // Tarjeta IA enriquecida con datos reales del modelo
-        mlCard = {
-          id: `ml-${Date.now()}`,
-          name: "Rutina Recomendada (modelo)",
-          goal: params.goal, // lo que eligió el usuario
-          level: params.experience, // lo que eligió el usuario
-          minMinutes: params.minutes,
-          maxMinutes: params.minutes + 15,
-          focus: focusFlat,
-          blocks,
-          _score: 5.0,
-          _meta: {
-            fuente: "IA-sklearn",
-            ...ml?.metadata,
-            scheme: ml?.scheme,
-          },
-        };
-      } catch (mlErr) {
-        console.warn("ML API falló (se muestra solo algoritmo local):", mlErr?.message || mlErr);
-      }
-
-      // 3) Mezcla resultados
-      setRecs(mlCard ? [...(localRows || []), mlCard] : (localRows || []));
+      const catalogo = buildSmallCatalogForDemo(); // cambia por tu catálogo Firestore si aplica
+      const ranked = await recommendRoutines(norm, catalogo, { topK: 8 });
+      setResults(ranked);
+      if (!ranked.length) toast.info("No hubo coincidencias. Ajusta los filtros.");
     } catch (err) {
       console.error(err);
-      alert("Error al recomendar rutinas");
+      toast.error("Error al recomendar. Revisa la consola.");
     } finally {
       setLoading(false);
     }
   }
 
-  // Convierte la recomendación (con blocks) al formato items {name}
-  function recommendedToItems(rt) {
-    const items = [];
-    items.push({
-      name: `${rt.name} · ${rt.minMinutes || "?"}-${rt.maxMinutes || "?"} min`,
-    });
-
-    if (Array.isArray(rt.focus) && rt.focus.length) {
-      items.push({ name: `Foco: ${rt.focus.join(" · ")}` });
-    }
-    items.push({ name: "" });
-
-    if (Array.isArray(rt.blocks)) {
-      let currentGroup = "";
-      rt.blocks.forEach((b, i) => {
-        const group = String(b?.bodyPart || "").toUpperCase();
-        if (group && group !== currentGroup) {
-          items.push({ name: `• ${group}` });
-          currentGroup = group;
-        }
-        const main = b?.exercise || b?.name || "Ejercicio";
-        const detail = b?.sets
-          ? `${b.sets}x${b.reps || b.time || "?"}`
-          : b?.reps || b?.time || "";
-        items.push({
-          name: `   ${i + 1}. ${main}${detail ? ` — ${detail}` : ""}`,
-        });
-      });
-    }
-
-    return items;
-  }
-
-  // Guarda la recomendación como rutina del usuario
-  async function onSaveSelected() {
-    if (!user || !selected) return;
-    setSaving(true);
+  async function saveOne(rec) {
+    if (!user) return toast.info("Inicia sesión para guardar tus rutinas.");
     try {
-      const items = recommendedToItems(selected);
       const name =
-        selected.name ||
-        `Rutina ${selected.goal || ""} · ${selected.minMinutes || ""}-${selected.maxMinutes || ""} min`.trim();
+        rec?.name ||
+        `Rutina — ${prettyFoco(rec.foco)} · ${rec.minutos || 30} min`;
 
-      await createRoutine(user.uid, {
+      const items =
+        Array.isArray(rec?.items) && rec.items.length
+          ? rec.items
+          : [
+              { name: `Foco: ${prettyFoco(rec.foco)}` },
+              { name: `Duración estimada: ${rec.minutos || 30} min` },
+              { name: `Nivel: ${prettyNivel(rec.nivel)}` },
+            ];
+
+      await createRoutineWithToast(user.uid, {
         name,
         items,
         _meta: {
-          fuente: selected._meta?.fuente || "recomendador-local",
-          score: typeof selected._score === "number" ? selected._score : null,
-          goal: selected.goal || null,
-          level: selected.level || null,
-          minMinutes: selected.minMinutes || null,
-          maxMinutes: selected.maxMinutes || null,
-          focus: Array.isArray(selected.focus) ? selected.focus : null,
-          scheme: selected._meta?.scheme || null,
-          modelVersion: selected._meta?.model_version || null,
+          objetivoId: rec?.objetivoId ?? null,
+          nivel: rec?.nivel ?? null,
+          foco: rec?.foco ?? null,
+          minutos: rec?.minutos ?? null,
+          baseScore: rec?.baseScore ?? undefined,
+          scheme: rec?.scheme ?? undefined,
+          fuente: "recomendadas",
+          score: rec?.score ?? undefined,
         },
       });
-
-      alert("✅ Guardada en tus rutinas");
-      setSelected(null);
     } catch (e) {
       console.error(e);
-      alert("No se pudo guardar la rutina.");
-    } finally {
-      setSaving(false);
     }
+  }
+
+  async function saveTop3() {
+    if (!user) return toast.info("Inicia sesión para guardar tus rutinas.");
+    const top = results.slice(0, 3);
+    if (!top.length) return toast.info("Primero genera recomendaciones.");
+
+    setSaving3(true);
+    try {
+      for (let i = 0; i < top.length; i++) {
+        const rec = top[i];
+        const name =
+          rec?.name ||
+          `Recomendación #${i + 1} — ${prettyFoco(rec.foco)} · ${
+            rec.minutos || 30
+          } min`;
+
+        const items =
+          Array.isArray(rec?.items) && rec.items.length
+            ? rec.items
+            : [
+                { name: `Foco: ${prettyFoco(rec.foco)}` },
+                { name: `Duración estimada: ${rec.minutos || 30} min` },
+                { name: `Nivel: ${prettyNivel(rec.nivel)}` },
+              ];
+
+        await createRoutineWithToast(user.uid, {
+          name,
+          items,
+          _meta: {
+            objetivoId: rec?.objetivoId ?? null,
+            nivel: rec?.nivel ?? null,
+            foco: rec?.foco ?? null,
+            minutos: rec?.minutos ?? null,
+            baseScore: rec?.baseScore ?? undefined,
+            scheme: rec?.scheme ?? undefined,
+            fuente: "recomendadas_top3",
+            rankIndex: i,
+            score: rec?.score ?? undefined,
+          },
+        });
+      }
+      toast.success("Top 3 guardado.");
+    } catch (e) {
+      console.error(e);
+      toast.error("No se pudo guardar el Top 3.");
+    } finally {
+      setSaving3(false);
+    }
+  }
+
+  function openDetails(rec, index) {
+    setDetail({ ...rec, index });
+    setOpen(true);
   }
 
   return (
     <div className="rtn-wrap">
       <header className="rtn-hero">
         <h1 className="rtn-title">✨ Recomendador de Rutinas</h1>
-        <p className="rtn-sub">Ajusta tus parámetros y obtén rutinas personalizadas</p>
+        <p className="rtn-sub">
+          Acomoda tus filtros y guarda **varias** recomendaciones 🔥
+        </p>
       </header>
 
-      {/* Formulario */}
-      <form className="rtn-form form-deco" onSubmit={onRecommend}>
-        <div className="rtn-grid-compact">
-          <Select
-            label="Sexo"
-            value={params.sex}
-            onChange={(v) => setParams((s) => ({ ...s, sex: v }))}
-            options={[
-              { value: "any", label: "Prefiero no decir" },
-              { value: "male", label: "Masculino" },
-              { value: "female", label: "Femenino" },
-            ]}
-          />
-          <label className="rtn-row">
-            Edad
-            <input
-              type="number"
-              className="rtn-input"
-              value={params.age}
-              onChange={(e) => setParams((s) => ({ ...s, age: Number(e.target.value) }))}
-            />
-          </label>
-          <Select
-            label="Experiencia"
-            value={params.experience}
-            onChange={(v) => setParams((s) => ({ ...s, experience: v }))}
-            options={[
-              { value: "novato", label: "Novato" },
-              { value: "intermedio", label: "Intermedio" },
-              { value: "avanzado", label: "Avanzado" },
-            ]}
-          />
-          <label className="rtn-row">
-            Minutos disponibles
-            <input
-              type="number"
-              className="rtn-input"
-              value={params.minutes}
-              onChange={(e) => setParams((s) => ({ ...s, minutes: Number(e.target.value) }))}
-            />
-          </label>
-          <Select
-            label="Objetivo"
-            value={params.goal}
-            onChange={(v) => setParams((s) => ({ ...s, goal: v }))}
-            options={[
-              { value: "salud", label: "Salud" },
-              { value: "perder_peso", label: "Perder peso" },
-              { value: "ganar_musculo", label: "Ganar músculo" },
-              { value: "hiit", label: "HIIT" },
-            ]}
-          />
+      {/* Filtros */}
+      <section className="rtn-section">
+        <div className="rtn-card form-deco">
+          <form className="rtn-form" onSubmit={onRecommend}>
+            <div className="rtn-grid-compact">
+              <Select
+                label="Sexo"
+                value={form.sexo}
+                onChange={(v) => setForm((s) => ({ ...s, sexo: Number(v) }))}
+                options={[
+                  { value: 0, label: "Prefiero no decir" },
+                  { value: 1, label: "Femenino" },
+                  { value: 2, label: "Masculino" },
+                ]}
+              />
+              <Input
+                label="Edad"
+                type="number"
+                min={12}
+                max={90}
+                value={form.edad}
+                onChange={(v) =>
+                  setForm((s) => ({ ...s, edad: Number(v) || 18 }))
+                }
+              />
+              <Select
+                label="Experiencia"
+                value={form.dificultad}
+                onChange={(v) =>
+                  setForm((s) => ({ ...s, dificultad: Number(v) }))
+                }
+                options={EXPERIENCIA}
+              />
+              <Select
+                label="Minutos"
+                value={form.tiempo}
+                onChange={(v) => setForm((s) => ({ ...s, tiempo: Number(v) }))}
+                options={TIEMPO}
+              />
+              <Select
+                label="Objetivo"
+                value={form.objetivo}
+                onChange={(v) =>
+                  setForm((s) => ({ ...s, objetivo: Number(v) }))
+                }
+                options={OBJETIVOS}
+              />
+            </div>
+            <div className="rtn-actions">
+              <button className="btn" type="submit" disabled={loading}>
+                {loading ? "Buscando..." : "Recomendar"}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={!results.length || saving3}
+                onClick={saveTop3}
+                style={{ marginLeft: 8 }}
+                title="Guarda las 3 mejores"
+              >
+                {saving3 ? "Guardando..." : "Guardar Top 3"}
+              </button>
+            </div>
+          </form>
         </div>
-        <div className="rtn-actions">
-          <button className="btn" type="submit" disabled={loading}>
-            {loading ? "Buscando..." : "🔍 Recomendar"}
-          </button>
-        </div>
-      </form>
+      </section>
 
       {/* Resultados */}
       <section className="rtn-section">
-        <h2>Resultados</h2>
-        {loading ? (
-          <div className="rtn-grid">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="rtn-card skeleton" style={{ height: 140 }} />
-            ))}
-          </div>
-        ) : recs.length === 0 ? (
+        <div className="rtn-head">
+          <h2>Resultados</h2>
+          {!!results.length && (
+            <div className="rtn-sec-note">{results.length} opciones</div>
+          )}
+        </div>
+
+        {results.length === 0 ? (
           <div className="rtn-empty">
-            <div className="rtn-empty-ico">🗂️</div>
+            <div className="rtn-empty-ico">🔎</div>
             <div className="rtn-empty-title">Aún no hay recomendaciones</div>
-            <div className="rtn-empty-sub">Ajusta filtros o añade más rutinas</div>
+            <div className="rtn-empty-sub">
+              Ajusta los filtros y presiona “Recomendar”.
+            </div>
           </div>
         ) : (
-          <div className="rtn-grid">
-            {recs.map((rt) => (
-              <article key={rt.id || rt.name} className="rtn-card">
-                <div className="rtn-card-head">
-                  <h3 className="rtn-card-title">{rt.name}</h3>
-                  {typeof rt._score === "number" && (
-                    <span className="pill">⭐ {rt._score.toFixed(1)}</span>
-                  )}
-                </div>
-                <div className="rtn-badges">
-                  {rt.goal && <span className="pill">{rt.goal}</span>}
-                  {rt.level && <span className="pill">{rt.level}</span>}
-                  {(rt.minMinutes || rt.maxMinutes) && (
-                    <span className="pill">
-                      {rt.minMinutes ?? "?"}-{rt.maxMinutes ?? "?"} min
-                    </span>
-                  )}
-                  {rt._meta?.model_version && (
-                    <span className="pill">ML v{rt._meta.model_version}</span>
-                  )}
-                </div>
-                {Array.isArray(rt.focus) && rt.focus.length > 0 && (
-                  <ul className="rtn-items">
-                    {rt.focus.slice(0, 3).map((f, i) => (
-                      <li key={i} className="rtn-item">
-                        <span className="rtn-bullet">•</span>
-                        <span>{f}</span>
-                      </li>
-                    ))}
-                    {rt.focus.length > 3 && (
-                      <li className="rtn-more">… y {rt.focus.length - 3} más</li>
+          <div className="rec-grid">
+            {results.map((r, i) => (
+              <article key={i} className="rec-card">
+                <div className="rec-card-head">
+                  <div>
+                    <h3 className="rec-title">{r.name || "Rutina"}</h3>
+                    <span className="rec-rank">#{i + 1}</span>
+                  </div>
+                  <div className="rec-badges">
+                    {r.objetivoId != null && (
+                      <span className="pill">{labelObjetivo(r.objetivoId)}</span>
                     )}
+                    {r.nivel != null && (
+                      <span className="pill">{prettyNivel(r.nivel)}</span>
+                    )}
+                    {r.minutos != null && (
+                      <span className="pill">{r.minutos} min</span>
+                    )}
+                    {r.explain?.mlSuggest?.metadata?.model_version && (
+                      <span className="pill">ML v{r.explain.mlSuggest.metadata.model_version}</span>
+                    )}
+                    {Number.isFinite(r.score) && (
+                      <span className="pill">
+                        ⭐ {r.score.toFixed(2)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rec-body">
+                  <ul className="rec-list">
+                    <li>Foco: {prettyFoco(r.foco)}</li>
+                    <li>Nivel: {prettyNivel(r.nivel)}</li>
+                    <li>Duración estimada: {r.minutos || 30} min</li>
                   </ul>
-                )}
-                <div className="rtn-card-actions">
+                </div>
+
+                <div className="rec-actions">
+                  <button className="btn" onClick={() => saveOne(r)}>
+                    Guardar esta
+                  </button>
                   <button
                     className="btn-secondary"
-                    type="button"
-                    onClick={() => setSelected(rt)}
+                    onClick={() => openDetails(r, i + 1)}
                   >
                     Ver detalles
                   </button>
@@ -329,52 +307,41 @@ export default function Recomendadas() {
         )}
       </section>
 
-      {/* Modal detalle */}
-      {selected && (
-        <div className="modal-backdrop" onClick={() => setSelected(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+      {/* Modal Detalles */}
+      {open && detail && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal rec-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-title">
-              {selected.name} · {selected.minMinutes || "—"}-{selected.maxMinutes || "—"}min
+              <strong>#{detail.index}</strong> {detail.name || "Rutina"}
             </div>
             <div className="modal-body">
-              <p>
-                <b>Meta:</b> {selected.goal || "—"}
-              </p>
-              <p>
-                <b>Nivel:</b> {selected.level || "—"}
-              </p>
-              <p>
-                <b>Foco:</b>{" "}
-                {Array.isArray(selected.focus) && selected.focus.length
-                  ? selected.focus.join(", ")
-                  : "—"}
-              </p>
-
-              {Array.isArray(selected.blocks) && selected.blocks.length > 0 && (
-                <>
-                  <h4 style={{ marginTop: 12 }}>Ejercicios / Bloques</h4>
-                  <ul style={{ lineHeight: 1.5 }}>
-                    {selected.blocks.map((b, i) => (
-                      <li key={i}>
-                        <b>{(b?.bodyPart || "").toUpperCase()}</b>: {b?.exercise || "Ejercicio"}
-                        {b?.sets
-                          ? ` (${b.sets}x${b.reps || b.time || "?"})`
-                          : b?.reps || b?.time
-                          ? ` (${b.reps || b.time})`
-                          : ""}
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
+              <div className="rec-badges" style={{ marginBottom: 12 }}>
+                {detail.objetivoId != null && (
+                  <span className="pill">{labelObjetivo(detail.objetivoId)}</span>
+                )}
+                {detail.nivel != null && (
+                  <span className="pill">{prettyNivel(detail.nivel)}</span>
+                )}
+                {detail.minutos != null && (
+                  <span className="pill">{detail.minutos} min</span>
+                )}
+                {detail.scheme && <span className="pill">{detail.scheme}</span>}
+              </div>
+              <ul className="rec-list">
+                <li>Foco: {prettyFoco(detail.foco)}</li>
+                <li>Duración estimada: {detail.minutos || 30} min</li>
+                <li>Score: {Number.isFinite(detail.score) ? detail.score.toFixed(3) : "—"}</li>
+                {detail.explain?.mlSuggest?.metadata?.model_version && (
+                  <li>Modelo: v{detail.explain.mlSuggest.metadata.model_version}</li>
+                )}
+              </ul>
             </div>
-
             <div className="modal-actions">
-              <button className="btn-secondary" onClick={() => setSelected(null)}>
-                Cerrar
+              <button className="btn" onClick={() => saveOne(detail)}>
+                Guardar esta
               </button>
-              <button className="btn" onClick={onSaveSelected} disabled={saving}>
-                {saving ? "Guardando..." : "💾 Guardar en mis rutinas"}
+              <button className="btn-secondary" onClick={() => setOpen(false)}>
+                Cerrar
               </button>
             </div>
           </div>
@@ -384,12 +351,16 @@ export default function Recomendadas() {
   );
 }
 
-// ---------- Componente Select ----------
+/* Helpers UI */
 function Select({ label, value, onChange, options }) {
   return (
     <label className="rtn-row" style={{ minWidth: 220 }}>
       <span>{label}</span>
-      <select className="rtn-input" value={value} onChange={(e) => onChange(e.target.value)}>
+      <select
+        className="rtn-input"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
         {options.map((op) => (
           <option key={op.value} value={op.value}>
             {op.label}
@@ -399,4 +370,40 @@ function Select({ label, value, onChange, options }) {
     </label>
   );
 }
+function Input({ label, value, onChange, type = "text", ...rest }) {
+  return (
+    <label className="rtn-row" style={{ minWidth: 220 }}>
+      <span>{label}</span>
+      <input
+        className="rtn-input"
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        {...rest}
+      />
+    </label>
+  );
+}
+function labelObjetivo(id) {
+  const found = OBJETIVOS.find((o) => o.value === id);
+  return found ? found.label : "Objetivo";
+}
+function prettyNivel(n) {
+  const map = { 0: "Novato", 1: "Intermedio", 2: "Avanzado", 3: "Pro" };
+  return map[n] ?? "—";
+}
+function prettyFoco(f) {
+  if (!f) return "general";
+  return String(f).replaceAll("_", " ").toLowerCase();
+}
 
+/* DEMO: catálogo mínimo (reemplaza por Firestore si lo tienes) */
+function buildSmallCatalogForDemo() {
+  return [
+    { id: "c1", name: "Full Body 30", objetivoId: 1, nivel: 0, foco: "fullbody", minutos: 30, baseScore: 0.6, scheme: "fatloss" },
+    { id: "c2", name: "Pecho / Espalda 45", objetivoId: 2, nivel: 1, foco: "pecho", minutos: 45, baseScore: 0.7, scheme: "muscle" },
+    { id: "c5", name: "Espalda / Bíceps 40", objetivoId: 2, nivel: 1, foco: "espalda", minutos: 40, baseScore: 0.68, scheme: "muscle" },
+    { id: "c3", name: "HIIT explosivo", objetivoId: 3, nivel: 1, foco: "hiit", minutos: 20, baseScore: 0.65, scheme: "hiit" },
+    { id: "c4", name: "Pierna 60", objetivoId: 4, nivel: 2, foco: "pierna", minutos: 60, baseScore: 0.72, scheme: "recomp" },
+  ];
+}

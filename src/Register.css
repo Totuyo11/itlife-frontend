@@ -2505,3 +2505,97 @@ body {
   border: 1px solid rgba(109, 40, 217, 0.3);
   color: #4b0082;
 }
+.fitlife-toast {
+  background: linear-gradient(90deg, #2a0140, #190028);
+  color: #fff;
+  border-radius: 10px;
+  box-shadow: 0 0 15px #ff00ff50;
+  border: 1px solid #ff00ff50;
+  font-size: 15px;
+  padding: 10px 14px;
+}
+
+.fitlife-toast-body strong {
+  color: #ff52e0;
+}
+/* ===== Recomendadas (cards bonitas y sin overflow) ===== */
+.rec-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 18px;
+}
+
+.rec-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 280px;
+  background: rgba(10, 12, 22, 0.7);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.25);
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+.rec-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 32px rgba(0,0,0,0.28);
+}
+
+.rec-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rec-title {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.15;
+}
+.rec-rank {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+}
+
+.rec-badges {
+  display: flex;
+  flex-wrap: wrap;          /* ← evita desbordes */
+  gap: 6px;
+  max-width: 60%;
+  justify-content: flex-end;
+}
+.rec-badges .pill {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;      /* se ven en varias filas, pero cada badge no parte palabras */
+}
+
+.rec-body {
+  margin-top: 12px;
+  flex: 1;                  /* ← empuja el footer al fondo */
+}
+.rec-list {
+  margin: 0;
+  padding-left: 18px;
+  opacity: .9;
+}
+.rec-list li { margin: 4px 0; }
+
+.rec-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* Modal detalles */
+.rec-modal {
+  max-width: 560px;
+}

@@ -23,11 +23,11 @@ import Login from "./Login";
 import Register from "./Register";
 import MisDatos from "./MisDatos";
 import Ejercicios from "./Ejercicios";
-import MisRutinas from "./pages/MisRutinas"; // 👈 Nueva página añadida
+import MisRutinas from "./pages/MisRutinas"; // ✅ Mis Rutinas
 
 // === LAZY (para carga diferida de módulos pesados) ===
 const Dashboard = lazy(() => import("./pages/Dashboard"));
-const Rutinas = lazy(() => import("./services/Rutinas")); // ✅ Ruta corregida
+const Rutinas = lazy(() => import("./services/Rutinas")); // ✅ Ruta corregida (tuviste este path)
 const Recomendadas = lazy(() => import("./pages/RutinasRecomendadas"));
 const SeedAdminFirestore = lazy(() => import("./SeedAdminFirestore"));
 const SeedRoutinesFromJSON = lazy(() => import("./SeedRoutinesFromJSON"));
@@ -140,10 +140,7 @@ function AppShell() {
               </PrivateRoute>
             }
           />
-          <Route
-            path="/mis-datos"
-            element={<Navigate to="/misdatos" replace />}
-          />
+          <Route path="/mis-datos" element={<Navigate to="/misdatos" replace />} />
 
           <Route
             path="/rutina"
@@ -210,8 +207,19 @@ function AppShell() {
         </Routes>
       </Suspense>
 
-      {/* 👉 Contenedor global de Toastify */}
-      <ToastContainer position="bottom-right" autoClose={3000} theme="dark" />
+      {/* 👉 Contenedor global de Toastify (usa tu tema oscuro) */}
+      <ToastContainer
+        position="bottom-right"
+        autoClose={3000}
+        hideProgressBar={false}
+        newestOnTop
+        closeOnClick
+        draggable
+        pauseOnHover
+        theme="dark"
+        toastClassName="fitlife-toast"     // opcional: aplica si defines esta clase en tu CSS
+        bodyClassName="fitlife-toast-body" // opcional
+      />
     </>
   );
 }

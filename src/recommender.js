@@ -1,35 +1,40 @@
-// recommender.js — versión PRO (reglas + ML + explicabilidad)
+// src/recommender.js — versión PRO (reglas + ML + explicabilidad)
 
-/// =====================
-/// Config
-/// =====================
+/* =========================================================
+ * Config
+ * =======================================================*/
 export const WEIGHTS = {
   objetivo: 0.35,
   nivel: 0.20,
   minutos: 0.15,
   foco: 0.15,
-  diversidad: 0.05,      // pequeño empujón si el foco cambia vs última vez
-  biasCatálogo: 0.10,     // si tienes score base del ejercicio/catálogo
+  diversidad: 0.05,     // pequeño empujón si el foco cambia vs última vez
+  biasCatálogo: 0.10,   // si tienes score base del ejercicio/catálogo
 };
 
 export const PENALTY = {
-  repeated48h: 0.30,      // resta hasta 0.30 si se repite < 48h
+  repeated48h: 0.30,                    // resta hasta 0.30 si se repite < 48h
   windowMs: 1000 * 60 * 60 * 48,
 };
 
 export const BOOSTS = {
-  mlFocusMatch: 0.12,     // boost si coincide foco con la IA
-  mlSchemeMatch: 0.08,    // boost si coincide esquema/plan con la IA
+  mlFocusMatch: 0.12,   // boost si coincide foco con la IA
+  mlSchemeMatch: 0.08,  // boost si coincide esquema/plan con la IA
 };
 
-const PREDICT_URL = "http://127.0.0.1:8000/predict";
-const PREDICT_TIMEOUT_MS = 1200;  // timeout corto → UX ágil
-const PREDICT_CACHE_MS   = 5 * 60 * 1000; // cache 5 min
+// Usa .env si existe; si no, fallback local
+const PREDICT_URL =
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_ML_API_BASE
+    ? `${import.meta.env.VITE_ML_API_BASE}/predict`
+    : "http://127.0.0.1:8000/predict");
 
-/// =====================
-/// Utils
-/// =====================
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const PREDICT_TIMEOUT_MS = 1200;           // timeout corto → UX ágil
+const PREDICT_CACHE_MS   = 5 * 60 * 1000;  // cache 5 min
+
+/* =========================================================
+ * Utils
+ * =======================================================*/
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function normalizedMinutesScore(minutos, wishBucket) {
   // buckets de tiempo: 1=10-20, 2=20-30, 3=30-45, 4=45-60
@@ -47,9 +52,9 @@ function normalizedMinutesScore(minutos, wishBucket) {
   return 1.0;
 }
 
-/// =====================
-/// Fetch predict (IA) con timeout, reintento y caché
-/// =====================
+/* =========================================================
+ * Fetch predict (IA) con timeout, reintento y caché
+ * =======================================================*/
 const _predictCache = new Map(); // key-> {ts, data}
 
 async function fetchPredict(inputs) {
@@ -73,7 +78,7 @@ async function fetchPredict(inputs) {
     const data = await res.json();
     _predictCache.set(key, { ts: now, data });
     return data;
-  } catch (e) {
+  } catch {
     clearTimeout(to);
     // un reintento breve
     await sleep(120);
@@ -93,9 +98,9 @@ async function fetchPredict(inputs) {
   }
 }
 
-/// =====================
-/// Penalización por repetición <48h
-/// =====================
+/* =========================================================
+ * Penalización por repetición <48h
+ * =======================================================*/
 export function recentUsedPenaltyMap(sessions = [], now = Date.now()) {
   // sessions: [{id: 'routineId', at: timestamp}, ...]
   const map = new Map();
@@ -109,9 +114,9 @@ export function recentUsedPenaltyMap(sessions = [], now = Date.now()) {
   return map;
 }
 
-/// =====================
-/// Scoring + explicabilidad
-/// =====================
+/* =========================================================
+ * Scoring + explicabilidad
+ * =======================================================*/
 export function scoreRoutine(inputs, r, ctx) {
   const { objetivo, dificultad, tiempo } = inputs;
   const { lastFocus, penaltyMap, mlSuggest } = ctx || {};
@@ -120,7 +125,7 @@ export function scoreRoutine(inputs, r, ctx) {
   const w = { ...WEIGHTS };
   let s_obj = 0, s_lvl = 0, s_min = 0, s_focus = 0, s_div = 0, s_bias = 0, s_pen = 0, s_ml = 0;
 
-  // objetivo: mapea tu objetivo→ esquemas/focos preferidos
+  // objetivo
   if (r.objetivoId != null) {
     s_obj = r.objetivoId === objetivo ? 1 : 0.2;
   }
@@ -134,17 +139,22 @@ export function scoreRoutine(inputs, r, ctx) {
   // minutos vs bucket deseado
   s_min = normalizedMinutesScore(r.minutos, tiempo);
 
-  // foco (pecho/espalda/hiit/etc.)
+  // foco (pecho/espalda/hiit/etc.) base
   if (r.foco && inputs) {
-    s_focus = 0.6; // base
+    s_focus = 0.6;
   }
-  if (mlSuggest && mlSuggest.focus_plan && r.foco) {
-    if (r.foco.toLowerCase() === String(mlSuggest.focus_plan).toLowerCase()) {
+
+  // === BOOSTS por IA (acepta labels nuevos o nombres antiguos) ===
+  const mlFocusStr  = mlSuggest?.focus_plan_label ?? mlSuggest?.focus_plan; // "fatloss"|"muscle"|... (string)
+  const mlSchemeStr = mlSuggest?.scheme_label     ?? mlSuggest?.scheme;     // "fatloss"|"muscle"|... (string)
+
+  if (mlFocusStr && r.foco) {
+    if (String(r.foco).toLowerCase() === String(mlFocusStr).toLowerCase()) {
       s_ml += BOOSTS.mlFocusMatch;
     }
   }
-  if (mlSuggest && mlSuggest.scheme && r.scheme) {
-    if (r.scheme.toLowerCase() === String(mlSuggest.scheme).toLowerCase()) {
+  if (mlSchemeStr && r.scheme) {
+    if (String(r.scheme).toLowerCase() === String(mlSchemeStr).toLowerCase()) {
       s_ml += BOOSTS.mlSchemeMatch;
     }
   }
@@ -186,9 +196,9 @@ export function scoreRoutine(inputs, r, ctx) {
   };
 }
 
-/// =====================
-/// Orquestación principal
-/// =====================
+/* =========================================================
+ * Orquestación principal
+ * =======================================================*/
 export async function recommendRoutines(inputs, catalogo, opts = {}) {
   const {
     recentMap = new Map(),
@@ -200,7 +210,7 @@ export async function recommendRoutines(inputs, catalogo, opts = {}) {
   const penaltyMap = recentMap.size ? recentMap : recentUsedPenaltyMap(sessions);
 
   // 1) pedir sugerencia ML (con timeout + fallback)
-  const ml = await fetchPredict(inputs); // {focus_plan, scheme, metadata} | null
+  const ml = await fetchPredict(inputs); // puede traer {focus_plan_label, scheme_label, ...}
 
   // 2) score por reglas (+ boosts de ML + penalización)
   const ranked = catalogo.map((r) => {
@@ -213,18 +223,16 @@ export async function recommendRoutines(inputs, catalogo, opts = {}) {
   return ranked.slice(0, topK);
 }
 
-/// =====================
-/// Log de sesión (ejemplo)
-/// =====================
+/* =========================================================
+ * Log de sesión (placeholder si no usas Firestore aquí)
+ * =======================================================*/
 export async function logSession(uid, routineId, extra = {}) {
-  // Aquí integras con Firestore si quieres persistir para penalización futura.
-  // Ejemplo: await addDoc(collection(db,"users",uid,"sessions"), {id: routineId, at: Timestamp.now(), ...extra})
   console.debug("logSession()", { uid, routineId, extra });
 }
 
-/// =====================
-/// Validación / normalización inputs (simple)
-/// =====================
+/* =========================================================
+ * Validación / normalización inputs (simple)
+ * =======================================================*/
 export function validarInputs(x) {
   const out = { ...x };
   const clamp = (v, lo, hi, def) =>
@@ -235,4 +243,57 @@ export function validarInputs(x) {
   out.tiempo = clamp(out.tiempo, 1, 4, 2);
   out.frecuencia = clamp(out.frecuencia, 1, 7, 3);
   return out;
+}
+
+/* =========================================================
+ * Adapter del catálogo Firestore -> formato scorable
+ * =======================================================*/
+export function toScorable(rDoc) {
+  // rDoc: { id, name, items, _meta, ... }
+  const m = rDoc?._meta || {};
+
+  // minutos: _meta.minutos || suma de items.mins/minutes || null
+  let minutos = Number.isFinite(m.minutos) ? m.minutos : null;
+  if (!minutos && Array.isArray(rDoc?.items)) {
+    minutos = rDoc.items.reduce((acc, it) => {
+      const v = it?.mins ?? it?.minutes ?? 0;
+      return acc + (Number.isFinite(v) ? v : 0);
+    }, 0);
+    if (!minutos) minutos = null;
+  }
+
+  // foco: _meta.foco || primer tag || 'fullbody'
+  const foco =
+    m.foco ||
+    (Array.isArray(m.tags) && m.tags.length ? m.tags[0] : null) ||
+    "fullbody";
+
+  // nivel/objetivo/baseScore/scheme con defaults
+  const objetivoId = Number.isFinite(m.objetivoId) ? m.objetivoId : 1;
+  const nivel = Number.isFinite(m.nivel) ? m.nivel : 1;
+  const baseScore =
+    typeof m.baseScore === "number" ? Math.max(0, Math.min(1, m.baseScore)) : 0;
+  // Para que el boost de esquema aplique, usa uno de: "fatloss" | "muscle" | "hiit" | "recomp"
+  const scheme = typeof m.scheme === "string" ? m.scheme : null;
+
+  return {
+    id: rDoc.id,
+    name: rDoc.name || "Rutina",
+    objetivoId,
+    nivel,
+    foco,
+    minutos,
+    baseScore,
+    scheme,
+    _raw: rDoc,
+  };
+}
+
+/* =========================================================
+ * Envoltura: rankear catálogo Firestore "tal cual"
+ * =======================================================*/
+export async function rankFromFirestoreCatalog(inputs, firestoreCatalog, opts = {}) {
+  const sanitized = validarInputs({ ...inputs });
+  const scorable = firestoreCatalog.map(toScorable);
+  return await recommendRoutines(sanitized, scorable, opts);
 }

@@ -25,13 +25,12 @@ export const BOOSTS = {
 /* =========================================================
  * URL de la API /predict
  *
- * - En LOCAL:
- *      http://127.0.0.1:8000/predict  (si NO pones env)
- * - En PRODUCCIÓN (Vercel, etc.):
- *      SOLO usa ML si defines:
- *        - VITE_ML_API_BASE   (Vite)
- *        - REACT_APP_ML_API_BASE (CRA)
- *      Si no hay variable → PREDICT_URL = null → se salta ML.
+ * LOCAL:
+ *   - Usa FastAPI en http://127.0.0.1:8000/predict
+ *
+ * PRODUCCIÓN (Vercel, etc.):
+ *   - SOLO usa ML si defines VITE_ML_API_BASE o REACT_APP_ML_API_BASE
+ *   - Si no hay variable → PREDICT_URL = null → se salta ML.
  * =======================================================*/
 const IS_BROWSER = typeof window !== "undefined";
 const IS_LOCALHOST =
@@ -39,27 +38,23 @@ const IS_LOCALHOST =
   (window.location.hostname === "localhost" ||
     window.location.hostname === "127.0.0.1");
 
-// 1) Intentar leer de variables de entorno (Vite o CRA)
-let envBase = null;
-if (typeof import.meta !== "undefined" && import.meta.env?.VITE_ML_API_BASE) {
-  envBase = String(import.meta.env.VITE_ML_API_BASE); // Vite
-} else if (typeof process !== "undefined" && process.env?.REACT_APP_ML_API_BASE) {
-  envBase = String(process.env.REACT_APP_ML_API_BASE); // CRA
-}
-
 let API_BASE = null;
 
-// 2) Si hay env → usarla siempre (prod o local)
-if (envBase) {
-  API_BASE = envBase;
-// 3) Si NO hay env pero estás en localhost → FastAPI local
-} else if (IS_LOCALHOST) {
-  API_BASE = "http://127.0.0.1:8000";
-// 4) En prod sin env → ML desactivado (solo reglas)
-} else {
-  API_BASE = null;
+// 1) Si hay VITE_ML_API_BASE / REACT_APP_ML_API_BASE, siempre manda ahí
+if (typeof import.meta !== "undefined" && import.meta.env) {
+  if (import.meta.env.VITE_ML_API_BASE) {
+    API_BASE = String(import.meta.env.VITE_ML_API_BASE);
+  } else if (import.meta.env.REACT_APP_ML_API_BASE) {
+    API_BASE = String(import.meta.env.REACT_APP_ML_API_BASE);
+  }
 }
 
+// 2) Si NO hay variable pero estás en localhost, usa FastAPI local
+if (!API_BASE && IS_LOCALHOST) {
+  API_BASE = "http://127.0.0.1:8000";
+}
+
+// 3) Si estás en prod y no definiste nada → sin ML (solo reglas)
 const PREDICT_URL = API_BASE ? `${API_BASE.replace(/\/$/, "")}/predict` : null;
 
 const PREDICT_TIMEOUT_MS = 1200; // timeout corto → UX ágil
@@ -96,8 +91,7 @@ async function fetchPredict(inputs) {
   if (!PREDICT_URL) {
     if (IS_BROWSER && !IS_LOCALHOST) {
       console.info(
-        "[Predict] ML desactivado en este entorno (sin VITE_ML_API_BASE/REACT_APP_ML_API_BASE). " +
-          "Usando solo el algoritmo de reglas."
+        "[Predict] ML desactivado en este entorno (sin VITE_ML_API_BASE / REACT_APP_ML_API_BASE). Usando solo el algoritmo de reglas."
       );
     }
     return null;
@@ -200,9 +194,9 @@ export function scoreRoutine(inputs, r, ctx) {
 
   // === BOOSTS por IA (acepta labels nuevos o nombres antiguos) ===
   const mlFocusStr =
-    mlSuggest?.focus_plan_label ?? mlSuggest?.focus_plan; // "fatloss"|"muscle"|... (string)
+    mlSuggest?.focus_plan_label ?? mlSuggest?.focus_plan; // "fatloss"|"muscle"|...
   const mlSchemeStr =
-    mlSuggest?.scheme_label ?? mlSuggest?.scheme; // "fatloss"|"muscle"|... (string)
+    mlSuggest?.scheme_label ?? mlSuggest?.scheme; // "fatloss"|"muscle"|...
 
   if (mlFocusStr && r.foco) {
     if (String(r.foco).toLowerCase() === String(mlFocusStr).toLowerCase()) {
@@ -292,14 +286,14 @@ export async function recommendRoutines(inputs, catalogo, opts = {}) {
 }
 
 /* =========================================================
- * Log de sesión (placeholder si no usas Firestore aquí)
+ * Log de sesión (placeholder)
  * =======================================================*/
 export async function logSession(uid, routineId, extra = {}) {
   console.debug("logSession()", { uid, routineId, extra });
 }
 
 /* =========================================================
- * Validación / normalización inputs (simple)
+ * Validación / normalización inputs
  * =======================================================*/
 export function validarInputs(x) {
   const out = { ...x };
@@ -362,7 +356,11 @@ export function toScorable(rDoc) {
 /* =========================================================
  * Envoltura: rankear catálogo Firestore "tal cual"
  * =======================================================*/
-export async function rankFromFirestoreCatalog(inputs, firestoreCatalog, opts = {}) {
+export async function rankFromFirestoreCatalog(
+  inputs,
+  firestoreCatalog,
+  opts = {}
+) {
   const sanitized = validarInputs({ ...inputs });
   const scorable = firestoreCatalog.map(toScorable);
   return await recommendRoutines(sanitized, scorable, opts);

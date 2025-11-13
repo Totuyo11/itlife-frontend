@@ -22,11 +22,26 @@ export const BOOSTS = {
   mlSchemeMatch: 0.08,  // boost si coincide esquema/plan con la IA
 };
 
-// Usa .env si existe; si no, fallback local
-const PREDICT_URL =
-  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_ML_API_BASE
-    ? `${import.meta.env.VITE_ML_API_BASE}/predict`
-    : "http://127.0.0.1:8000/predict");
+// =========================================================
+// URL de la API /predict
+// - En local: http://127.0.0.1:8000
+// - En Vercel/prod: normalmente /api (proxy de Vercel)
+// - Si defines VITE_ML_API_BASE, tiene prioridad
+// =========================================================
+let API_BASE = "http://127.0.0.1:8000";
+
+if (typeof import.meta !== "undefined" && import.meta.env?.VITE_ML_API_BASE) {
+  // Puedes poner en Vercel: VITE_ML_API_BASE=/api
+  API_BASE = String(import.meta.env.VITE_ML_API_BASE);
+} else if (typeof window !== "undefined") {
+  const host = window.location.host || "";
+  // Si estamos en Vercel (o cualquier host público), tira al proxy /api
+  if (host.includes("vercel.app")) {
+    API_BASE = "/api";
+  }
+}
+
+const PREDICT_URL = `${API_BASE.replace(/\/$/, "")}/predict`;
 
 const PREDICT_TIMEOUT_MS = 1200;           // timeout corto → UX ágil
 const PREDICT_CACHE_MS   = 5 * 60 * 1000;  // cache 5 min

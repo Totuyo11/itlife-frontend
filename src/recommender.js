@@ -8,43 +8,62 @@ export const WEIGHTS = {
   nivel: 0.20,
   minutos: 0.15,
   foco: 0.15,
-  diversidad: 0.05,     // pequeño empujón si el foco cambia vs última vez
-  biasCatálogo: 0.10,   // si tienes score base del ejercicio/catálogo
+  diversidad: 0.05, // pequeño empujón si el foco cambia vs última vez
+  biasCatálogo: 0.10, // si tienes score base del ejercicio/catálogo
 };
 
 export const PENALTY = {
-  repeated48h: 0.30,                    // resta hasta 0.30 si se repite < 48h
+  repeated48h: 0.30, // resta hasta 0.30 si se repite < 48h
   windowMs: 1000 * 60 * 60 * 48,
 };
 
 export const BOOSTS = {
-  mlFocusMatch: 0.12,   // boost si coincide foco con la IA
-  mlSchemeMatch: 0.08,  // boost si coincide esquema/plan con la IA
+  mlFocusMatch: 0.12, // boost si coincide foco con la IA
+  mlSchemeMatch: 0.08, // boost si coincide esquema/plan con la IA
 };
 
-// =========================================================
-// URL de la API /predict
-// - En local: http://127.0.0.1:8000
-// - En Vercel/prod: normalmente /api (proxy de Vercel)
-// - Si defines VITE_ML_API_BASE, tiene prioridad
-// =========================================================
-let API_BASE = "http://127.0.0.1:8000";
+/* =========================================================
+ * URL de la API /predict
+ *
+ * - En LOCAL:
+ *      http://127.0.0.1:8000/predict  (si NO pones env)
+ * - En PRODUCCIÓN (Vercel, etc.):
+ *      SOLO usa ML si defines:
+ *        - VITE_ML_API_BASE   (Vite)
+ *        - REACT_APP_ML_API_BASE (CRA)
+ *      Si no hay variable → PREDICT_URL = null → se salta ML.
+ * =======================================================*/
+const IS_BROWSER = typeof window !== "undefined";
+const IS_LOCALHOST =
+  IS_BROWSER &&
+  (window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1");
 
+// 1) Intentar leer de variables de entorno (Vite o CRA)
+let envBase = null;
 if (typeof import.meta !== "undefined" && import.meta.env?.VITE_ML_API_BASE) {
-  // Puedes poner en Vercel: VITE_ML_API_BASE=/api
-  API_BASE = String(import.meta.env.VITE_ML_API_BASE);
-} else if (typeof window !== "undefined") {
-  const host = window.location.host || "";
-  // Si estamos en Vercel (o cualquier host público), tira al proxy /api
-  if (host.includes("vercel.app")) {
-    API_BASE = "/api";
-  }
+  envBase = String(import.meta.env.VITE_ML_API_BASE); // Vite
+} else if (typeof process !== "undefined" && process.env?.REACT_APP_ML_API_BASE) {
+  envBase = String(process.env.REACT_APP_ML_API_BASE); // CRA
 }
 
-const PREDICT_URL = `${API_BASE.replace(/\/$/, "")}/predict`;
+let API_BASE = null;
 
-const PREDICT_TIMEOUT_MS = 1200;           // timeout corto → UX ágil
-const PREDICT_CACHE_MS   = 5 * 60 * 1000;  // cache 5 min
+// 2) Si hay env → usarla siempre (prod o local)
+if (envBase) {
+  API_BASE = envBase;
+// 3) Si NO hay env pero estás en localhost → FastAPI local
+} else if (IS_LOCALHOST) {
+  API_BASE = "http://127.0.0.1:8000";
+// 4) En prod sin env → ML desactivado (solo reglas)
+} else {
+  API_BASE = null;
+}
+
+const PREDICT_URL = API_BASE ? `${API_BASE.replace(/\/$/, "")}/predict` : null;
+
+const PREDICT_TIMEOUT_MS = 1200; // timeout corto → UX ágil
+const PREDICT_CACHE_MS = 5 * 60 * 1000; // cache 5 min
 
 /* =========================================================
  * Utils
@@ -73,6 +92,17 @@ function normalizedMinutesScore(minutos, wishBucket) {
 const _predictCache = new Map(); // key-> {ts, data}
 
 async function fetchPredict(inputs) {
+  // Si PREDICT_URL es null → ML desactivado (ej. en producción sin API)
+  if (!PREDICT_URL) {
+    if (IS_BROWSER && !IS_LOCALHOST) {
+      console.info(
+        "[Predict] ML desactivado en este entorno (sin VITE_ML_API_BASE/REACT_APP_ML_API_BASE). " +
+          "Usando solo el algoritmo de reglas."
+      );
+    }
+    return null;
+  }
+
   const key = JSON.stringify(inputs);
   const now = Date.now();
   const cached = _predictCache.get(key);
@@ -93,8 +123,9 @@ async function fetchPredict(inputs) {
     const data = await res.json();
     _predictCache.set(key, { ts: now, data });
     return data;
-  } catch {
+  } catch (err) {
     clearTimeout(to);
+    console.warn("[Predict] primer intento falló:", err?.message || err);
     // un reintento breve
     await sleep(120);
     try {
@@ -107,7 +138,8 @@ async function fetchPredict(inputs) {
       const data2 = await res2.json();
       _predictCache.set(key, { ts: now, data: data2 });
       return data2;
-    } catch {
+    } catch (err2) {
+      console.warn("[Predict] fallback: failed to fetch:", err2?.message || err2);
       return null; // fallback a reglas
     }
   }
@@ -138,7 +170,14 @@ export function scoreRoutine(inputs, r, ctx) {
 
   // componentes
   const w = { ...WEIGHTS };
-  let s_obj = 0, s_lvl = 0, s_min = 0, s_focus = 0, s_div = 0, s_bias = 0, s_pen = 0, s_ml = 0;
+  let s_obj = 0,
+    s_lvl = 0,
+    s_min = 0,
+    s_focus = 0,
+    s_div = 0,
+    s_bias = 0,
+    s_pen = 0,
+    s_ml = 0;
 
   // objetivo
   if (r.objetivoId != null) {
@@ -160,8 +199,10 @@ export function scoreRoutine(inputs, r, ctx) {
   }
 
   // === BOOSTS por IA (acepta labels nuevos o nombres antiguos) ===
-  const mlFocusStr  = mlSuggest?.focus_plan_label ?? mlSuggest?.focus_plan; // "fatloss"|"muscle"|... (string)
-  const mlSchemeStr = mlSuggest?.scheme_label     ?? mlSuggest?.scheme;     // "fatloss"|"muscle"|... (string)
+  const mlFocusStr =
+    mlSuggest?.focus_plan_label ?? mlSuggest?.focus_plan; // "fatloss"|"muscle"|... (string)
+  const mlSchemeStr =
+    mlSuggest?.scheme_label ?? mlSuggest?.scheme; // "fatloss"|"muscle"|... (string)
 
   if (mlFocusStr && r.foco) {
     if (String(r.foco).toLowerCase() === String(mlFocusStr).toLowerCase()) {
@@ -203,8 +244,16 @@ export function scoreRoutine(inputs, r, ctx) {
   return {
     score: total,
     explain: {
-      base, s_obj, s_lvl, s_min, s_focus, s_div, s_bias,
-      s_ml, s_pen, weights: w,
+      base,
+      s_obj,
+      s_lvl,
+      s_min,
+      s_focus,
+      s_div,
+      s_bias,
+      s_ml,
+      s_pen,
+      weights: w,
       boosts: BOOSTS,
       mlSuggest: mlSuggest || null,
     },
@@ -229,7 +278,11 @@ export async function recommendRoutines(inputs, catalogo, opts = {}) {
 
   // 2) score por reglas (+ boosts de ML + penalización)
   const ranked = catalogo.map((r) => {
-    const { score, explain } = scoreRoutine(inputs, r, { lastFocus, penaltyMap, mlSuggest: ml });
+    const { score, explain } = scoreRoutine(inputs, r, {
+      lastFocus,
+      penaltyMap,
+      mlSuggest: ml,
+    });
     return { ...r, score, explain };
   });
 
@@ -287,7 +340,9 @@ export function toScorable(rDoc) {
   const objetivoId = Number.isFinite(m.objetivoId) ? m.objetivoId : 1;
   const nivel = Number.isFinite(m.nivel) ? m.nivel : 1;
   const baseScore =
-    typeof m.baseScore === "number" ? Math.max(0, Math.min(1, m.baseScore)) : 0;
+    typeof m.baseScore === "number"
+      ? Math.max(0, Math.min(1, m.baseScore))
+      : 0;
   // Para que el boost de esquema aplique, usa uno de: "fatloss" | "muscle" | "hiit" | "recomp"
   const scheme = typeof m.scheme === "string" ? m.scheme : null;
 

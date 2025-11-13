@@ -8,29 +8,28 @@ export const WEIGHTS = {
   nivel: 0.20,
   minutos: 0.15,
   foco: 0.15,
-  diversidad: 0.05, // pequeño empujón si el foco cambia vs última vez
-  biasCatálogo: 0.10, // si tienes score base del ejercicio/catálogo
+  diversidad: 0.05,     // pequeño empujón si el foco cambia vs última vez
+  biasCatálogo: 0.10,   // si tienes score base del ejercicio/catálogo
 };
 
 export const PENALTY = {
-  repeated48h: 0.30, // resta hasta 0.30 si se repite < 48h
+  repeated48h: 0.30,                    // resta hasta 0.30 si se repite < 48h
   windowMs: 1000 * 60 * 60 * 48,
 };
 
 export const BOOSTS = {
-  mlFocusMatch: 0.12, // boost si coincide foco con la IA
-  mlSchemeMatch: 0.08, // boost si coincide esquema/plan con la IA
+  mlFocusMatch: 0.12,   // boost si coincide foco con la IA
+  mlSchemeMatch: 0.08,  // boost si coincide esquema/plan con la IA
 };
 
 /* =========================================================
  * URL de la API /predict
  *
- * LOCAL:
- *   - Usa FastAPI en http://127.0.0.1:8000/predict
- *
- * PRODUCCIÓN (Vercel, etc.):
- *   - SOLO usa ML si defines VITE_ML_API_BASE o REACT_APP_ML_API_BASE
- *   - Si no hay variable → PREDICT_URL = null → se salta ML.
+ * - LOCAL (localhost):
+ *      http://127.0.0.1:8000/predict
+ * - PRODUCCIÓN (Vercel, etc.):
+ *      SOLO usa ML si defines VITE_ML_API_BASE o REACT_APP_ML_API_BASE
+ *      Si no hay variable → PREDICT_URL = null → se salta ML y NO logea errores.
  * =======================================================*/
 const IS_BROWSER = typeof window !== "undefined";
 const IS_LOCALHOST =
@@ -40,25 +39,30 @@ const IS_LOCALHOST =
 
 let API_BASE = null;
 
-// 1) Si hay VITE_ML_API_BASE / REACT_APP_ML_API_BASE, siempre manda ahí
-if (typeof import.meta !== "undefined" && import.meta.env) {
-  if (import.meta.env.VITE_ML_API_BASE) {
-    API_BASE = String(import.meta.env.VITE_ML_API_BASE);
-  } else if (import.meta.env.REACT_APP_ML_API_BASE) {
-    API_BASE = String(import.meta.env.REACT_APP_ML_API_BASE);
-  }
-}
+// 1) Si hay VITE_ML_API_BASE / REACT_APP_ML_API_BASE → siempre manda ahí
+const viteBase =
+  (typeof import.meta !== "undefined" &&
+    import.meta.env &&
+    import.meta.env.VITE_ML_API_BASE) ||
+  (typeof process !== "undefined" &&
+    process.env &&
+    process.env.REACT_APP_ML_API_BASE) ||
+  "";
 
+if (viteBase) {
+  API_BASE = String(viteBase);
 // 2) Si NO hay variable pero estás en localhost, usa FastAPI local
-if (!API_BASE && IS_LOCALHOST) {
+} else if (IS_LOCALHOST) {
   API_BASE = "http://127.0.0.1:8000";
+// 3) Producción sin nada → ML desactivado (solo reglas)
+} else {
+  API_BASE = null;
 }
 
-// 3) Si estás en prod y no definiste nada → sin ML (solo reglas)
 const PREDICT_URL = API_BASE ? `${API_BASE.replace(/\/$/, "")}/predict` : null;
 
-const PREDICT_TIMEOUT_MS = 1200; // timeout corto → UX ágil
-const PREDICT_CACHE_MS = 5 * 60 * 1000; // cache 5 min
+const PREDICT_TIMEOUT_MS = 1200;           // timeout corto → UX ágil
+const PREDICT_CACHE_MS   = 5 * 60 * 1000;  // cache 5 min
 
 /* =========================================================
  * Utils
@@ -87,13 +91,8 @@ function normalizedMinutesScore(minutos, wishBucket) {
 const _predictCache = new Map(); // key-> {ts, data}
 
 async function fetchPredict(inputs) {
-  // Si PREDICT_URL es null → ML desactivado (ej. en producción sin API)
+  // Si PREDICT_URL es null → ML desactivado (ej. producción sin API)
   if (!PREDICT_URL) {
-    if (IS_BROWSER && !IS_LOCALHOST) {
-      console.info(
-        "[Predict] ML desactivado en este entorno (sin VITE_ML_API_BASE / REACT_APP_ML_API_BASE). Usando solo el algoritmo de reglas."
-      );
-    }
     return null;
   }
 
@@ -117,10 +116,9 @@ async function fetchPredict(inputs) {
     const data = await res.json();
     _predictCache.set(key, { ts: now, data });
     return data;
-  } catch (err) {
+  } catch {
     clearTimeout(to);
-    console.warn("[Predict] primer intento falló:", err?.message || err);
-    // un reintento breve
+    // un reintento breve silencioso
     await sleep(120);
     try {
       const res2 = await fetch(PREDICT_URL, {
@@ -132,8 +130,8 @@ async function fetchPredict(inputs) {
       const data2 = await res2.json();
       _predictCache.set(key, { ts: now, data: data2 });
       return data2;
-    } catch (err2) {
-      console.warn("[Predict] fallback: failed to fetch:", err2?.message || err2);
+    } catch {
+      // último fallback: NO logeamos error para no ensuciar consola en Vercel
       return null; // fallback a reglas
     }
   }
@@ -162,7 +160,6 @@ export function scoreRoutine(inputs, r, ctx) {
   const { objetivo, dificultad, tiempo } = inputs;
   const { lastFocus, penaltyMap, mlSuggest } = ctx || {};
 
-  // componentes
   const w = { ...WEIGHTS };
   let s_obj = 0,
     s_lvl = 0,
@@ -194,9 +191,9 @@ export function scoreRoutine(inputs, r, ctx) {
 
   // === BOOSTS por IA (acepta labels nuevos o nombres antiguos) ===
   const mlFocusStr =
-    mlSuggest?.focus_plan_label ?? mlSuggest?.focus_plan; // "fatloss"|"muscle"|...
+    mlSuggest?.focus_plan_label ?? mlSuggest?.focus_plan;
   const mlSchemeStr =
-    mlSuggest?.scheme_label ?? mlSuggest?.scheme; // "fatloss"|"muscle"|...
+    mlSuggest?.scheme_label ?? mlSuggest?.scheme;
 
   if (mlFocusStr && r.foco) {
     if (String(r.foco).toLowerCase() === String(mlFocusStr).toLowerCase()) {
@@ -268,7 +265,7 @@ export async function recommendRoutines(inputs, catalogo, opts = {}) {
   const penaltyMap = recentMap.size ? recentMap : recentUsedPenaltyMap(sessions);
 
   // 1) pedir sugerencia ML (con timeout + fallback)
-  const ml = await fetchPredict(inputs); // puede traer {focus_plan_label, scheme_label, ...}
+  const ml = await fetchPredict(inputs);
 
   // 2) score por reglas (+ boosts de ML + penalización)
   const ranked = catalogo.map((r) => {
@@ -289,11 +286,15 @@ export async function recommendRoutines(inputs, catalogo, opts = {}) {
  * Log de sesión (placeholder)
  * =======================================================*/
 export async function logSession(uid, routineId, extra = {}) {
-  console.debug("logSession()", { uid, routineId, extra });
+  // Silencioso para no ensuciar consola; deja el hook por si luego conectas Firestore
+  if (IS_LOCALHOST) {
+    // eslint-disable-next-line no-console
+    console.debug("logSession()", { uid, routineId, extra });
+  }
 }
 
 /* =========================================================
- * Validación / normalización inputs
+ * Validación / normalización inputs (simple)
  * =======================================================*/
 export function validarInputs(x) {
   const out = { ...x };
@@ -311,10 +312,8 @@ export function validarInputs(x) {
  * Adapter del catálogo Firestore -> formato scorable
  * =======================================================*/
 export function toScorable(rDoc) {
-  // rDoc: { id, name, items, _meta, ... }
   const m = rDoc?._meta || {};
 
-  // minutos: _meta.minutos || suma de items.mins/minutes || null
   let minutos = Number.isFinite(m.minutos) ? m.minutos : null;
   if (!minutos && Array.isArray(rDoc?.items)) {
     minutos = rDoc.items.reduce((acc, it) => {
@@ -324,20 +323,17 @@ export function toScorable(rDoc) {
     if (!minutos) minutos = null;
   }
 
-  // foco: _meta.foco || primer tag || 'fullbody'
   const foco =
     m.foco ||
     (Array.isArray(m.tags) && m.tags.length ? m.tags[0] : null) ||
     "fullbody";
 
-  // nivel/objetivo/baseScore/scheme con defaults
   const objetivoId = Number.isFinite(m.objetivoId) ? m.objetivoId : 1;
   const nivel = Number.isFinite(m.nivel) ? m.nivel : 1;
   const baseScore =
     typeof m.baseScore === "number"
       ? Math.max(0, Math.min(1, m.baseScore))
       : 0;
-  // Para que el boost de esquema aplique, usa uno de: "fatloss" | "muscle" | "hiit" | "recomp"
   const scheme = typeof m.scheme === "string" ? m.scheme : null;
 
   return {
@@ -356,11 +352,7 @@ export function toScorable(rDoc) {
 /* =========================================================
  * Envoltura: rankear catálogo Firestore "tal cual"
  * =======================================================*/
-export async function rankFromFirestoreCatalog(
-  inputs,
-  firestoreCatalog,
-  opts = {}
-) {
+export async function rankFromFirestoreCatalog(inputs, firestoreCatalog, opts = {}) {
   const sanitized = validarInputs({ ...inputs });
   const scorable = firestoreCatalog.map(toScorable);
   return await recommendRoutines(sanitized, scorable, opts);

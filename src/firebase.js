@@ -38,62 +38,79 @@ const firebaseConfig = {
 export const app = initializeApp(firebaseConfig);
 
 /* ============================================
- * 🛡️ App Check (reCAPTCHA v3) + Debug en local
+ * 🛡️ App Check (reCAPTCHA v3)
+ *
+ * - En localhost:
+ *    - usa token DEBUG sin necesidad de clave
+ * - En producción:
+ *    - SOLO se activa si tienes VITE_RECAPTCHA_KEY / REACT_APP_RECAPTCHA_KEY
+ *    - Si no hay clave → AppCheck se desactiva silenciosamente.
  * ========================================== */
 const isBrowser = typeof window !== "undefined";
 const isLocalhost =
   isBrowser &&
-  (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+  (window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1");
 
-// Detecta claves posibles (Vite o CRA)
-const viteKey =
-  typeof import.meta !== "undefined" &&
-  import.meta.env &&
-  import.meta.env.VITE_RECAPTCHA_KEY;
-
-const craKey =
-  typeof process !== "undefined" &&
-  process.env &&
-  process.env.REACT_APP_RECAPTCHA_KEY;
-
-const RECAPTCHA_KEY = viteKey || craKey || "";
-
-// Activa token DEBUG **antes** de initializeAppCheck (solo en local)
-if (isLocalhost && isBrowser) {
-  const g = typeof globalThis !== "undefined" ? globalThis : window;
-  g.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
-}
+// Lee clave desde env (Vite o CRA)
+const RECAPTCHA_KEY =
+  (typeof import.meta !== "undefined" &&
+    import.meta.env &&
+    import.meta.env.VITE_RECAPTCHA_KEY) ||
+  (typeof process !== "undefined" &&
+    process.env &&
+    process.env.REACT_APP_RECAPTCHA_KEY) ||
+  "";
 
 let appCheck = null;
 
 if (isBrowser) {
-  if (!RECAPTCHA_KEY && !isLocalhost) {
-    console.error(
-      "[AppCheck] Falta REACT_APP_RECAPTCHA_KEY/VITE_RECAPTCHA_KEY en producción. " +
-        "App Check podría fallar (403)."
-    );
+  // 🔹 Token debug SOLO en localhost (para poder probar sin clave real)
+  if (isLocalhost) {
+    const g = typeof globalThis !== "undefined" ? globalThis : window;
+    // eslint-disable-next-line no-restricted-globals
+    g.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
   }
 
-  // Solo inicializamos si hay clave o estamos en localhost (modo debug)
-  if (RECAPTCHA_KEY || isLocalhost) {
+  // 🔹 Producción con clave → AppCheck real
+  // 🔹 Localhost sin clave → modo "debug"
+  // 🔹 Producción sin clave → AppCheck DESACTIVADO (sin errores)
+  if (RECAPTCHA_KEY) {
     appCheck = initializeAppCheck(app, {
-      provider: new ReCaptchaV3Provider(RECAPTCHA_KEY || (isLocalhost ? "debug" : "")),
+      provider: new ReCaptchaV3Provider(RECAPTCHA_KEY),
       isTokenAutoRefreshEnabled: true,
     });
+  } else if (isLocalhost) {
+    // localhost sin clave → debug
+    appCheck = initializeAppCheck(app, {
+      provider: new ReCaptchaV3Provider("debug"),
+      isTokenAutoRefreshEnabled: true,
+    });
+  } else {
+    // Producción sin clave: no inicializamos AppCheck
+    // Para no ensuciar la consola en Vercel, solo logeamos en dev
+    if (process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.info(
+        "[AppCheck] Sin RECAPTCHA_KEY en este entorno. App Check desactivado."
+      );
+    }
+  }
 
-    // Exponer para depuración opcional
+  // Exponer instancia SOLO para debug manual si la necesitas
+  if (appCheck && isLocalhost) {
     // @ts-ignore
     window.FIREBASE_APPCHECK_INSTANCE = appCheck;
-
-    // Helper: await window.__testAppCheck()
     // eslint-disable-next-line no-underscore-dangle
     window.__testAppCheck = async () => {
       try {
         const { getToken } = await import("firebase/app-check");
-        const t = await getToken(appCheck, /* forceRefresh */ true);
+        const t = await getToken(appCheck, true);
+        // eslint-disable-next-line no-console
         console.log("[AppCheck] appCheckToken:", t.token);
         return t;
       } catch (e) {
+        // eslint-disable-next-line no-console
         console.error("[AppCheck] getToken error:", e);
         throw e;
       }
@@ -104,7 +121,7 @@ if (isBrowser) {
 export { appCheck };
 
 /* ============================================
- * 📊 Analytics (opcional)
+ * 📊 Analytics (opcional, no rompe en incógnito)
  * ========================================== */
 export let analytics = null;
 (async () => {
@@ -113,7 +130,7 @@ export let analytics = null;
       analytics = getAnalytics(app);
     }
   } catch {
-    // Ignorar si falla
+    // Ignorar si el entorno no soporta analytics (p. ej. incógnito)
   }
 })();
 
@@ -124,7 +141,7 @@ export const auth = getAuth(app);
 setPersistence(auth, browserLocalPersistence).catch(() => {});
 
 /* ============================================
- * 🗃️ Firestore
+ * 🗃️ Firestore (mejor compatibilidad en redes)
  * ========================================== */
 export const db = initializeFirestore(app, {
   ignoreUndefinedProperties: true,
@@ -134,7 +151,7 @@ export const db = initializeFirestore(app, {
 enableIndexedDbPersistence(db).catch(() => {});
 
 /* ============================================
- * 🟢 RTDB y 📦 Storage
+ * 🟢 RTDB (opcional) y 📦 Storage
  * ========================================== */
 export const rtdb = getDatabase(app);
 export const storage = getStorage(app);

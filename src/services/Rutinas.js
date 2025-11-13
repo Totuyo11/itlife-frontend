@@ -27,18 +27,73 @@ function itemsToText(items = []) {
   return (items || []).map((it) => it?.name || "").join("\n");
 }
 
-// ---------- Cliente API ML ----------
-const LS_API = (localStorage.getItem("fitlife_api_url") || "").trim();
-const API =
-  LS_API ||
-  process.env.REACT_APP_API_URL ||
-  `http://${window.location.hostname}:8000`;
+// ---------- Cliente API ML (seguro para prod) ----------
+const IS_BROWSER = typeof window !== "undefined";
+const IS_LOCALHOST =
+  IS_BROWSER &&
+  (window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1");
+
+// Permitimos que el usuario sobreescriba la URL desde localStorage
+const LS_API =
+  (IS_BROWSER && (localStorage.getItem("fitlife_api_url") || "").trim()) || "";
+
+// Soportamos también la env clásica de CRA
+const ENV_API =
+  (typeof process !== "undefined" &&
+    process.env &&
+    process.env.REACT_APP_API_URL &&
+    process.env.REACT_APP_API_URL.trim()) ||
+  "";
+
+// Elegimos la primera URL válida evitando contenido mixto en producción
+function pickPredictUrl() {
+  const candidates = [];
+
+  if (LS_API) candidates.push(LS_API);
+  if (ENV_API) candidates.push(ENV_API);
+
+  // En localhost, si no se definió nada, usamos FastAPI local
+  if (IS_LOCALHOST) {
+    candidates.push("http://127.0.0.1:8000");
+  }
+
+  if (!candidates.length) return null;
+
+  for (const base of candidates) {
+    if (!base) continue;
+    const clean = base.replace(/\/$/, "");
+
+    // Si estamos en HTTPS (Vercel, etc.) solo aceptamos backends HTTPS
+    if (
+      IS_BROWSER &&
+      window.location.protocol === "https:" &&
+      !IS_LOCALHOST &&
+      clean.startsWith("http://")
+    ) {
+      // esto provocaría Mixed Content → lo saltamos
+      continue;
+    }
+
+    return `${clean}/predict`;
+  }
+
+  return null;
+}
+
+const PREDICT_URL = pickPredictUrl();
 
 async function predictRoutineAPI(payload) {
+  // Si no hay URL segura → ML desactivado, solo reglas
+  if (!PREDICT_URL) {
+    return null;
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 1500);
+
   try {
-    const res = await fetch(`${API}/predict`, {
+    const res = await fetch(PREDICT_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -50,7 +105,7 @@ async function predictRoutineAPI(payload) {
     }
     return await res.json();
   } catch (err) {
-    console.warn("Predict fallback:", err.message);
+    console.warn("Predict fallback:", err.message || err);
     return null;
   } finally {
     clearTimeout(timeout);
@@ -95,7 +150,9 @@ function planToItems(planSemanal = [], schemeOverride = null) {
         const reps = sch.reps ?? "?";
         const descanso = sch.descanso ?? "?";
         items.push({
-          name: `    ${idx + 1}. ${ex?.nombre || "Ejercicio"} — ${series} series · ${reps} · descanso ${descanso}`,
+          name: `    ${idx + 1}. ${ex?.nombre || "Ejercicio"} — ${
+            series
+          } series · ${reps} · descanso ${descanso}`,
         });
       });
     }
@@ -176,27 +233,55 @@ export default function Rutinas() {
     }));
   }
 
-  // Generar con IA
+  // Generar con IA (reglas + ML si está disponible)
   async function onGenerateAI(e) {
     e.preventDefault();
     if (!user) return toast.info("Inicia sesión para guardar tu rutina.");
+
     const norm = validarInputs(genInputs);
     setGenLoading(true);
+
     try {
+      // 1) Algoritmo de reglas (recomendarRutinas)
       const ranked = await recomendarRutinas(norm);
+
+      // 2) Intentar modelo ML solo si hay backend configurado
       const pred = await predictRoutineAPI(norm);
-      let focusPlan = pred?.focus_plan || ranked.slice(0, 3).map((r) => [r.foco || "General"]);
+
+      // Si la API responde, usamos su focus_plan; si no, derivamos del ranking
+      const focusPlan =
+        pred?.focus_plan && Array.isArray(pred.focus_plan)
+          ? pred.focus_plan
+          : ranked.slice(0, 3).map((r) => [r.foco || "General"]);
+
       const plan = buildPlanFromFocus(focusPlan, ranked);
+
       const { plan: planPP, resumen } = postProcessPlan(plan, {
-        perfil: { experiencia: norm.dificultad, imc: 22, limitacion: norm.limitacion },
+        perfil: {
+          experiencia: norm.dificultad,
+          imc: 22,
+          limitacion: norm.limitacion,
+        },
       });
+
       const items = planToItems(planPP, pred?.scheme);
-      const totalMin = planPP.reduce((a, d) => a + (Number(d?.duracionEstimadaMin) || 0), 0);
-      const genName = `Rutina ${OBJETIVOS[norm.objetivo]} · ${FRECUENCIAS[norm.frecuencia]} · ${TIEMPOS[norm.tiempo]}`;
+      const totalMin = planPP.reduce(
+        (a, d) => a + (Number(d?.duracionEstimadaMin) || 0),
+        0
+      );
+      const genName = `Rutina ${OBJETIVOS[norm.objetivo]} · ${
+        FRECUENCIAS[norm.frecuencia]
+      } · ${TIEMPOS[norm.tiempo]}`;
+
       await createRoutineWithToast(user.uid, {
         name: genName,
         items,
-        _meta: { minutos: totalMin, fuente: "ML+rules", postProcess: resumen, ...norm },
+        _meta: {
+          minutos: totalMin,
+          fuente: pred ? "ML+rules" : "rules-only",
+          postProcess: resumen,
+          ...norm,
+        },
       });
     } catch (err) {
       console.error(err);
@@ -207,8 +292,13 @@ export default function Rutinas() {
   }
 
   function openEdit(rt) {
-    setEditing({ id: rt.id, name: rt.name || "", itemsText: itemsToText(rt.items || []) });
+    setEditing({
+      id: rt.id,
+      name: rt.name || "",
+      itemsText: itemsToText(rt.items || []),
+    });
   }
+
   async function onSaveEdit() {
     if (!user || !editing) return;
     try {
@@ -221,6 +311,7 @@ export default function Rutinas() {
       console.error(err);
     }
   }
+
   async function onDuplicate(rt) {
     if (!user) return;
     try {
@@ -233,6 +324,7 @@ export default function Rutinas() {
       console.error(err);
     }
   }
+
   function onDelete(rt) {
     if (!user) return;
     setConfirmDel({ id: rt.id, name: rt.name || "Rutina" });
@@ -244,7 +336,8 @@ export default function Rutinas() {
       <header className="rtn-hero">
         <h1 className="rtn-title">Rutinas</h1>
         <p className="rtn-sub">
-          Crea planes enfocados y organízalos por ejercicios. <span className="pill">Uno por línea</span>
+          Crea planes enfocados y organízalos por ejercicios.{" "}
+          <span className="pill">Uno por línea</span>
         </p>
       </header>
 
@@ -265,8 +358,13 @@ export default function Rutinas() {
                   key={key}
                   label={lbl}
                   value={genInputs[key]}
-                  onChange={(v) => setGenInputs((s) => ({ ...s, [key]: Number(v) }))}
-                  options={Object.entries(opts).map(([v, t]) => ({ value: v, label: t }))}
+                  onChange={(v) =>
+                    setGenInputs((s) => ({ ...s, [key]: Number(v) }))
+                  }
+                  options={Object.entries(opts).map(([v, t]) => ({
+                    value: v,
+                    label: t,
+                  }))}
                 />
               ))}
             </div>
@@ -286,14 +384,25 @@ export default function Rutinas() {
           <form className="rtn-form" onSubmit={onCreate}>
             <label className="rtn-row">
               Nombre
-              <input className="rtn-input" value={name} onChange={(e) => setName(e.target.value)} />
+              <input
+                className="rtn-input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
             </label>
             <label className="rtn-row">
               Ejercicios (uno por línea)
-              <textarea className="rtn-textarea" rows={5} value={rawItems} onChange={(e) => setRawItems(e.target.value)} />
+              <textarea
+                className="rtn-textarea"
+                rows={5}
+                value={rawItems}
+                onChange={(e) => setRawItems(e.target.value)}
+              />
             </label>
             <div className="rtn-actions">
-              <button className="btn" disabled={!name || !rawItems}>+ Guardar rutina</button>
+              <button className="btn" disabled={!name || !rawItems}>
+                + Guardar rutina
+              </button>
             </div>
           </form>
         </div>
@@ -306,14 +415,20 @@ export default function Rutinas() {
         {loading ? (
           <div className="rtn-grid">
             {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="rtn-card skeleton" style={{ height: 160 }} />
+              <div
+                key={i}
+                className="rtn-card skeleton"
+                style={{ height: 160 }}
+              />
             ))}
           </div>
         ) : routines.length === 0 ? (
           <div className="rtn-empty">
             <div className="rtn-empty-ico">🗂️</div>
             <div className="rtn-empty-title">Aún no tienes rutinas</div>
-            <div className="rtn-empty-sub">Crea una arriba para empezar a planificar tus sesiones.</div>
+            <div className="rtn-empty-sub">
+              Crea una arriba para empezar a planificar tus sesiones.
+            </div>
           </div>
         ) : (
           <div className="rtn-grid">
@@ -321,18 +436,44 @@ export default function Rutinas() {
               <article key={rt.id} className="rtn-card">
                 <div className="rtn-card-head">
                   <h3>{rt.name}</h3>
-                  <span className="pill">{(rt.items || []).length} ejercicios</span>
+                  <span className="pill">
+                    {(rt.items || []).length} ejercicios
+                  </span>
                 </div>
                 <ul className="rtn-items">
-                  {(rt.items || []).slice(0, 5).map((it, idx) => (
-                    <li key={idx}><span className="rtn-bullet">•</span>{it.name}</li>
-                  ))}
-                  {(rt.items || []).length > 5 && <li className="rtn-more">… y {(rt.items || []).length - 5} más</li>}
+                  {(rt.items || [])
+                    .slice(0, 5)
+                    .map((it, idx) => (
+                      <li key={idx}>
+                        <span className="rtn-bullet">•</span>
+                        {it.name}
+                      </li>
+                    ))}
+                  {(rt.items || []).length > 5 && (
+                    <li className="rtn-more">
+                      … y {(rt.items || []).length - 5} más
+                    </li>
+                  )}
                 </ul>
                 <div className="rtn-card-actions">
-                  <button className="btn-secondary" onClick={() => openEdit(rt)}>✏️ Editar</button>
-                  <button className="btn-secondary" onClick={() => onDuplicate(rt)}>🧬 Duplicar</button>
-                  <button className="btn-danger" onClick={() => onDelete(rt)}>🗑️ Eliminar</button>
+                  <button
+                    className="btn-secondary"
+                    onClick={() => openEdit(rt)}
+                  >
+                    ✏️ Editar
+                  </button>
+                  <button
+                    className="btn-secondary"
+                    onClick={() => onDuplicate(rt)}
+                  >
+                    🧬 Duplicar
+                  </button>
+                  <button
+                    className="btn-danger"
+                    onClick={() => onDelete(rt)}
+                  >
+                    🗑️ Eliminar
+                  </button>
                 </div>
               </article>
             ))}
@@ -347,13 +488,33 @@ export default function Rutinas() {
             <div className="modal-title">Editar rutina</div>
             <div className="modal-body">
               <label>Nombre</label>
-              <input className="rtn-input" value={editing.name} onChange={(e) => setEditing((s) => ({ ...s, name: e.target.value }))} />
+              <input
+                className="rtn-input"
+                value={editing.name}
+                onChange={(e) =>
+                  setEditing((s) => ({ ...s, name: e.target.value }))
+                }
+              />
               <label>Ejercicios (uno por línea)</label>
-              <textarea className="rtn-textarea" rows={6} value={editing.itemsText} onChange={(e) => setEditing((s) => ({ ...s, itemsText: e.target.value }))} />
+              <textarea
+                className="rtn-textarea"
+                rows={6}
+                value={editing.itemsText}
+                onChange={(e) =>
+                  setEditing((s) => ({ ...s, itemsText: e.target.value }))
+                }
+              />
             </div>
             <div className="modal-actions">
-              <button className="btn-secondary" onClick={() => setEditing(null)}>Cancelar</button>
-              <button className="btn" onClick={onSaveEdit}>Guardar cambios</button>
+              <button
+                className="btn-secondary"
+                onClick={() => setEditing(null)}
+              >
+                Cancelar
+              </button>
+              <button className="btn" onClick={onSaveEdit}>
+                Guardar cambios
+              </button>
             </div>
           </div>
         </div>
@@ -365,16 +526,30 @@ export default function Rutinas() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-title">Eliminar rutina</div>
             <div className="modal-body">
-              <p>¿Seguro que deseas eliminar <strong>{confirmDel.name}</strong>?</p>
-              <p style={{ opacity: 0.8, marginTop: 6 }}>Esta acción no se puede deshacer.</p>
+              <p>
+                ¿Seguro que deseas eliminar{" "}
+                <strong>{confirmDel.name}</strong>?
+              </p>
+              <p style={{ opacity: 0.8, marginTop: 6 }}>
+                Esta acción no se puede deshacer.
+              </p>
             </div>
             <div className="modal-actions">
-              <button className="btn-secondary" onClick={() => setConfirmDel(null)}>Cancelar</button>
+              <button
+                className="btn-secondary"
+                onClick={() => setConfirmDel(null)}
+              >
+                Cancelar
+              </button>
               <button
                 className="btn-danger"
                 onClick={async () => {
                   try {
-                    await deleteRoutineWithToast(user.uid, confirmDel.id, confirmDel.name);
+                    await deleteRoutineWithToast(
+                      user.uid,
+                      confirmDel.id,
+                      confirmDel.name
+                    );
                   } finally {
                     setConfirmDel(null);
                   }
@@ -395,9 +570,15 @@ function Select({ label, value, onChange, options }) {
   return (
     <label className="rtn-row" style={{ minWidth: 220 }}>
       <span>{label}</span>
-      <select className="rtn-input" value={value} onChange={(e) => onChange(e.target.value)}>
+      <select
+        className="rtn-input"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
         {options.map((op) => (
-          <option key={op.value} value={op.value}>{op.label}</option>
+          <option key={op.value} value={op.value}>
+            {op.label}
+          </option>
         ))}
       </select>
     </label>

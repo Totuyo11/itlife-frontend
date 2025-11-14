@@ -1,7 +1,13 @@
 // src/services/dynamicGenerator.js
 import { ALL_EXERCISES } from "../data/exercises";
 
-// 🧩 Escoge ejercicios para un día según músculos + nivel + minutos
+/**
+ * pickExercisesForDay
+ * Escoge una lista de ejercicios para un día, en función de:
+ * - dayFocusMuscles: músculos objetivo (ej. ["pecho", "tricep"])
+ * - userLevel: nivel del usuario ("novato", "intermedio", "avanzado")
+ * - targetMinutes: minutos objetivo para esa sesión (ej. 30, 45)
+ */
 export function pickExercisesForDay(dayFocusMuscles, userLevel, targetMinutes) {
   const focusSet = new Set(
     (dayFocusMuscles || []).map((m) => (m || "").toLowerCase())
@@ -43,8 +49,10 @@ export function pickExercisesForDay(dayFocusMuscles, userLevel, targetMinutes) {
   candidates = candidates.sort(() => Math.random() - 0.5);
 
   for (const ex of candidates) {
-    const exMinutes = ex.approxMinutes || ex.duration || 4; // usa lo que tengas, si no, 4 min
+    // si no tienes approxMinutes/duration en los ejercicios, usa default 4 min
+    const exMinutes = ex.approxMinutes || ex.duration || 4;
 
+    // si al agregar este ejercicio nos pasamos demasiado, lo saltamos
     if (totalMinutes + exMinutes > targetMinutes + 5) continue;
 
     routineExercises.push({
@@ -64,16 +72,26 @@ export function pickExercisesForDay(dayFocusMuscles, userLevel, targetMinutes) {
 
     totalMinutes += exMinutes;
 
+    // si ya estamos cerca del target, paramos
     if (totalMinutes >= targetMinutes - 3) break;
   }
 
   return { exercises: routineExercises, totalMinutes };
 }
 
-// 🧠 Construye rutinas dinámicas a partir de la respuesta de ML
+/**
+ * buildDynamicRoutinesFromML
+ * Construye rutinas dinámicas a partir de la respuesta del modelo de ML.
+ * mlResponse: respuesta de /predict (con focus_plan, metadata, etc.)
+ * userFilters: { minutos, nivel, objetivo }
+ */
 export function buildDynamicRoutinesFromML(mlResponse, userFilters) {
   const { focus_plan = [], metadata = {} } = mlResponse || {};
-  const { minutos = 30, nivel = "intermedio", objetivo = "general" } = userFilters;
+  const {
+    minutos = 30,
+    nivel = "intermedio",
+    objetivo = "general",
+  } = userFilters || {};
 
   return focus_plan.map((dayMuscles, idx) => {
     const { exercises, totalMinutes } = pickExercisesForDay(

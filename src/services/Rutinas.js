@@ -6,14 +6,13 @@ import { useAuth } from "../AuthContext";
 // Servicios
 import { recomendarRutinas } from "../services/recommenderService";
 import { validarInputs } from "../recommender";
-import { postProcessPlan } from "../services/planPostProcessor";
-
 import {
   listenRoutines,
   createRoutineWithToast,
   updateRoutineWithToast,
   deleteRoutineWithToast,
 } from "../services/routines";
+import { buildDynamicRoutinesFromML } from "../services/dynamicGenerator";
 
 // ---------- Utils texto <-> items ----------
 function parseItemsFromText(text) {
@@ -66,41 +65,16 @@ const OBJETIVOS = {
   4: "recomposición muscular",
 };
 const DIFICULTADES = { 1: "principiante", 2: "intermedio", 3: "avanzado" };
-const LIMITACIONES = { 1: "articulares", 2: "muscular", 3: "enfermedad", 4: "ninguna" };
+const LIMITACIONES = {
+  1: "articulares",
+  2: "muscular",
+  3: "enfermedad",
+  4: "ninguna",
+};
 const TIEMPOS = { 1: "30-45min", 2: "60-90min", 3: "120-180min" };
 const FRECUENCIAS = { 1: "1-2 días", 2: "3-4 días", 3: "5-6 días" };
 
-// ---------- Utils para plan ----------
-function planToItems(planSemanal = [], schemeOverride = null) {
-  const items = [];
-  for (const dia of planSemanal) {
-    const foco = Array.isArray(dia?.foco) ? dia.foco : [];
-    items.push({
-      name: `Día ${dia?.dia ?? "?"}: ${foco.join(" + ")} · ${dia?.duracionEstimadaMin ?? "?"} min`,
-    });
-
-    const bloques = Array.isArray(dia?.bloques) ? dia.bloques : [];
-    for (const b of bloques) {
-      const grupo = (b?.grupo || "").toUpperCase();
-      items.push({ name: `  • ${grupo}` });
-
-      const ejercicios = Array.isArray(b?.ejercicios) ? b.ejercicios : [];
-      ejercicios.forEach((ex, idx) => {
-        const sch = schemeOverride || ex?.esquema || {};
-        const series = sch.series ?? "?";
-        const reps = sch.reps ?? "?";
-        const descanso = sch.descanso ?? "?";
-        items.push({
-          name: `    ${idx + 1}. ${ex?.nombre || "Ejercicio"} — ${series} series · ${reps} · descanso ${descanso}`,
-        });
-      });
-    }
-    items.push({ name: "" });
-  }
-  if (items.length && items[items.length - 1].name === "") items.pop();
-  return items;
-}
-
+// ---------- Componente principal ----------
 export default function Rutinas() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -155,68 +129,97 @@ export default function Rutinas() {
     }
   }
 
-  function buildPlanFromFocus(focusPlan = [], ranked = []) {
-    const plan = [];
-    for (let i = 0; i < focusPlan.length; i++) {
-      const focoDia = Array.isArray(focusPlan[i]) ? focusPlan[i] : [];
-      const minutos = ranked[i]?.minutos ?? 30;
-      const bloques = focoDia.map((g) => ({ grupo: g, ejercicios: [] }));
-      plan.push({
-        dia: i + 1,
-        foco: focoDia,
-        duracionEstimadaMin: minutos,
-        bloques,
-      });
-    }
-    return plan;
-  }
-
-  // Generar con IA + reglas (con toast)
+  // 🔥 Generar con IA + ejercicios dinámicos
   async function onGenerateAI(e) {
     e.preventDefault();
     if (!user) return;
 
-    const norm = validarInputs(genInputs);
+    const norm = validarInputs(genInputs); // normaliza objetivo, dificultad, etc.
     setGenLoading(true);
+
     try {
+      // 1) Reglas (recomendarRutinas) → lo seguimos usando como apoyo/fallback
       const ranked = await recomendarRutinas(norm);
-      let focusPlan = null;
-      let scheme = null;
-      let modelVer = "NA";
 
+      // 2) Intentar usar el modelo de ML real
+      let mlResponse = null;
       const pred = await predictRoutineAPI(norm);
-      if (pred) {
-        focusPlan = Array.isArray(pred?.focus_plan) ? pred.focus_plan : null;
-        scheme = pred?.scheme || null;
-        modelVer = pred?.metadata?.model_version || "NA";
+
+      if (pred && Array.isArray(pred.focus_plan) && pred.focus_plan.length > 0) {
+        mlResponse = pred;
+      } else {
+        // 3) Fallback: construir focus_plan en base a las rutinas rankeadas
+        const fallbackFocusPlan = ranked
+          .slice(0, norm.frecuencia || 3)
+          .map((r) => {
+            const foco = r.foco || r.focus || r.focusPlan;
+            if (Array.isArray(foco)) return foco;
+            if (typeof foco === "string") {
+              return foco
+                .split(/[,+/]/)
+                .map((s) => s.trim())
+                .filter(Boolean);
+            }
+            return ["Full body"];
+          });
+
+        mlResponse = {
+          focus_plan:
+            fallbackFocusPlan.length > 0 ? fallbackFocusPlan : [["Full body"]],
+          metadata: { model_version: "rules-fallback" },
+        };
       }
 
-      if (!focusPlan) {
-        const top = ranked.slice(0, 3).map((r) => [r.foco || "General"]);
-        focusPlan = top.length ? top : [["General"], ["General"], ["General"]];
-      }
+      // 4) Traducir categoría de tiempo a minutos aproximados
+      const minutosMap = { 1: 40, 2: 75, 3: 150 };
+      const minutos = minutosMap[norm.tiempo] || 40;
+      const nivelLabel = DIFICULTADES[norm.dificultad] || "intermedio";
+      const objetivoLabel = OBJETIVOS[norm.objetivo] || "general";
 
-      let plan = buildPlanFromFocus(focusPlan, ranked);
-
-      const { plan: planPP, resumen } = postProcessPlan(plan, {
-        perfil: {
-          experiencia: norm.dificultad,
-          imc: 22,
-          limitacion: norm.limitacion,
-        },
+      // 5) Construir rutinas dinámicas a partir del plan + tus 52 ejercicios
+      const dynamicRoutines = buildDynamicRoutinesFromML(mlResponse, {
+        minutos,
+        nivel: nivelLabel.toLowerCase(),
+        objetivo: objetivoLabel,
       });
 
-      const items = planToItems(planPP, scheme);
-      if (items.length === 0) throw new Error("Plan vacío");
+      if (!dynamicRoutines.length) {
+        throw new Error("No se pudieron generar rutinas dinámicas");
+      }
 
-      const genName = `Rutina ${OBJETIVOS[norm.objetivo]} · ${FRECUENCIAS[norm.frecuencia]} · ${TIEMPOS[norm.tiempo]}`;
+      // 6) Convertir esas rutinas dinámicas a formato de "items" (uno por línea)
+      const items = [];
+      dynamicRoutines.forEach((r, idx) => {
+        const focusText = (r.focus || []).join(" + ") || "Full body";
+        items.push({
+          name: `Día ${idx + 1}: ${focusText} · ${r.minutes} min`,
+        });
+
+        (r.exercises || []).forEach((ex, j) => {
+          items.push({
+            name: `  ${j + 1}. ${ex.name} — ${ex.sets}x${ex.reps} · descanso ${ex.restSeconds}s`,
+          });
+        });
+
+        items.push({ name: "" }); // línea en blanco entre días
+      });
+      if (items.length && items[items.length - 1].name === "") items.pop();
+
+      // 7) Nombre bonito de la rutina
+      const genName = `Rutina ${objetivoLabel} · ${
+        FRECUENCIAS[norm.frecuencia]
+      } · ${TIEMPOS[norm.tiempo]}`;
+
+      // 8) Guardar en Firestore con metadatos de IA
       await createRoutineWithToast(user.uid, {
         name: genName,
         items,
         _meta: {
-          fuente: scheme ? "ML+rules" : "rules-only",
-          modelVersion: modelVer,
-          postProcess: resumen,
+          fuente: mlResponse?.metadata?.model_version
+            ? "ML_DYNAMIC"
+            : "rules-fallback",
+          modelVersion:
+            mlResponse?.metadata?.model_version || "rules-fallback",
           ...norm,
         },
       });
@@ -417,13 +420,22 @@ export default function Rutinas() {
                   )}
                 </ul>
                 <div className="rtn-card-actions">
-                  <button className="btn-secondary" onClick={() => openViewer(rt)}>
+                  <button
+                    className="btn-secondary"
+                    onClick={() => openViewer(rt)}
+                  >
                     👁️ Ver contenido
                   </button>
-                  <button className="btn-secondary" onClick={() => openEdit(rt)}>
+                  <button
+                    className="btn-secondary"
+                    onClick={() => openEdit(rt)}
+                  >
                     ✏️ Editar
                   </button>
-                  <button className="btn-danger" onClick={() => onDelete(rt)}>
+                  <button
+                    className="btn-danger"
+                    onClick={() => onDelete(rt)}
+                  >
                     🗑️ Eliminar
                   </button>
                 </div>
@@ -500,7 +512,11 @@ function Select({ label, value, onChange, options }) {
   return (
     <label className="rtn-row" style={{ minWidth: 220 }}>
       <span>{label}</span>
-      <select className="rtn-input" value={value} onChange={(e) => onChange(e.target.value)}>
+      <select
+        className="rtn-input"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
         {options.map((op) => (
           <option key={op.value} value={op.value}>
             {op.label}
@@ -511,5 +527,8 @@ function Select({ label, value, onChange, options }) {
   );
 }
 function mapObj(obj) {
-  return Object.entries(obj).map(([v, t]) => ({ value: Number(v), label: t }));
+  return Object.entries(obj).map(([v, t]) => ({
+    value: Number(v),
+    label: t,
+  }));
 }

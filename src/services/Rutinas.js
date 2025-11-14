@@ -2,12 +2,12 @@
 import React, { useEffect, useState } from "react";
 import "../Register.css";
 import { useAuth } from "../AuthContext";
-import { toast } from "react-toastify";
 
 // Servicios
 import { recomendarRutinas } from "../services/recommenderService";
 import { validarInputs } from "../recommender";
 import { postProcessPlan } from "../services/planPostProcessor";
+
 import {
   listenRoutines,
   createRoutineWithToast,
@@ -27,73 +27,19 @@ function itemsToText(items = []) {
   return (items || []).map((it) => it?.name || "").join("\n");
 }
 
-// ---------- Cliente API ML (seguro para prod) ----------
-const IS_BROWSER = typeof window !== "undefined";
-const IS_LOCALHOST =
-  IS_BROWSER &&
-  (window.location.hostname === "localhost" ||
-    window.location.hostname === "127.0.0.1");
-
-// Permitimos que el usuario sobreescriba la URL desde localStorage
-const LS_API =
-  (IS_BROWSER && (localStorage.getItem("fitlife_api_url") || "").trim()) || "";
-
-// Soportamos también la env clásica de CRA
-const ENV_API =
-  (typeof process !== "undefined" &&
-    process.env &&
-    process.env.REACT_APP_API_URL &&
-    process.env.REACT_APP_API_URL.trim()) ||
-  "";
-
-// Elegimos la primera URL válida evitando contenido mixto en producción
-function pickPredictUrl() {
-  const candidates = [];
-
-  if (LS_API) candidates.push(LS_API);
-  if (ENV_API) candidates.push(ENV_API);
-
-  // En localhost, si no se definió nada, usamos FastAPI local
-  if (IS_LOCALHOST) {
-    candidates.push("http://127.0.0.1:8000");
-  }
-
-  if (!candidates.length) return null;
-
-  for (const base of candidates) {
-    if (!base) continue;
-    const clean = base.replace(/\/$/, "");
-
-    // Si estamos en HTTPS (Vercel, etc.) solo aceptamos backends HTTPS
-    if (
-      IS_BROWSER &&
-      window.location.protocol === "https:" &&
-      !IS_LOCALHOST &&
-      clean.startsWith("http://")
-    ) {
-      // esto provocaría Mixed Content → lo saltamos
-      continue;
-    }
-
-    return `${clean}/predict`;
-  }
-
-  return null;
-}
-
-const PREDICT_URL = pickPredictUrl();
+// ---------- Cliente API ML ----------
+const LS_API = (localStorage.getItem("fitlife_api_url") || "").trim();
+const API =
+  LS_API ||
+  process.env.REACT_APP_API_URL ||
+  `http://${window.location.hostname}:8000`;
 
 async function predictRoutineAPI(payload) {
-  // Si no hay URL segura → ML desactivado, solo reglas
-  if (!PREDICT_URL) {
-    return null;
-  }
-
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 1500);
 
   try {
-    const res = await fetch(PREDICT_URL, {
+    const res = await fetch(`${API}/predict`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -105,7 +51,7 @@ async function predictRoutineAPI(payload) {
     }
     return await res.json();
   } catch (err) {
-    console.warn("Predict fallback:", err.message || err);
+    console.warn("Predict fallback:", err.message);
     return null;
   } finally {
     clearTimeout(timeout);
@@ -120,29 +66,24 @@ const OBJETIVOS = {
   4: "recomposición muscular",
 };
 const DIFICULTADES = { 1: "principiante", 2: "intermedio", 3: "avanzado" };
-const LIMITACIONES = {
-  1: "articulares",
-  2: "muscular",
-  3: "enfermedad",
-  4: "ninguna",
-};
+const LIMITACIONES = { 1: "articulares", 2: "muscular", 3: "enfermedad", 4: "ninguna" };
 const TIEMPOS = { 1: "30-45min", 2: "60-90min", 3: "120-180min" };
 const FRECUENCIAS = { 1: "1-2 días", 2: "3-4 días", 3: "5-6 días" };
 
-// ---------- Utils plan ----------
+// ---------- Utils para plan ----------
 function planToItems(planSemanal = [], schemeOverride = null) {
   const items = [];
   for (const dia of planSemanal) {
     const foco = Array.isArray(dia?.foco) ? dia.foco : [];
     items.push({
-      name: `Día ${dia?.dia ?? "?"}: ${foco.join(" + ")} · ${
-        dia?.duracionEstimadaMin ?? "?"
-      } min`,
+      name: `Día ${dia?.dia ?? "?"}: ${foco.join(" + ")} · ${dia?.duracionEstimadaMin ?? "?"} min`,
     });
+
     const bloques = Array.isArray(dia?.bloques) ? dia.bloques : [];
     for (const b of bloques) {
       const grupo = (b?.grupo || "").toUpperCase();
       items.push({ name: `  • ${grupo}` });
+
       const ejercicios = Array.isArray(b?.ejercicios) ? b.ejercicios : [];
       ejercicios.forEach((ex, idx) => {
         const sch = schemeOverride || ex?.esquema || {};
@@ -150,9 +91,7 @@ function planToItems(planSemanal = [], schemeOverride = null) {
         const reps = sch.reps ?? "?";
         const descanso = sch.descanso ?? "?";
         items.push({
-          name: `    ${idx + 1}. ${ex?.nombre || "Ejercicio"} — ${
-            series
-          } series · ${reps} · descanso ${descanso}`,
+          name: `    ${idx + 1}. ${ex?.nombre || "Ejercicio"} — ${series} series · ${reps} · descanso ${descanso}`,
         });
       });
     }
@@ -162,7 +101,6 @@ function planToItems(planSemanal = [], schemeOverride = null) {
   return items;
 }
 
-// ---------- Página ----------
 export default function Rutinas() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -177,8 +115,9 @@ export default function Rutinas() {
     tiempo: 1,
     frecuencia: 2,
   });
+
   const [editing, setEditing] = useState(null);
-  const [confirmDel, setConfirmDel] = useState(null);
+  const [viewer, setViewer] = useState(null); // { id, name, itemsText }
 
   useEffect(() => {
     if (!user) {
@@ -195,13 +134,12 @@ export default function Rutinas() {
       (err) => {
         console.error("[listenRoutines] error:", err);
         setLoading(false);
-        toast.error("No se pudieron leer tus rutinas.");
       }
     );
     return () => unsub && unsub();
   }, [user]);
 
-  // Crear manual
+  // Crear manual (con toast)
   async function onCreate(e) {
     e.preventDefault();
     if (!user) return;
@@ -209,11 +147,7 @@ export default function Rutinas() {
     const items = parseItemsFromText(rawItems);
     if (!cleanName || items.length === 0) return;
     try {
-      await createRoutineWithToast(user.uid, {
-        name: cleanName,
-        items,
-        _meta: { minutos: 0, fuente: "manual" },
-      });
+      await createRoutineWithToast(user.uid, { name: cleanName, items });
       setName("");
       setRawItems("");
     } catch (err) {
@@ -222,39 +156,47 @@ export default function Rutinas() {
   }
 
   function buildPlanFromFocus(focusPlan = [], ranked = []) {
-    return focusPlan.map((focoDia, i) => ({
-      dia: i + 1,
-      foco: Array.isArray(focoDia) ? focoDia : [],
-      duracionEstimadaMin: ranked[i]?.minutos ?? 30,
-      bloques: (Array.isArray(focoDia) ? focoDia : []).map((g) => ({
-        grupo: g,
-        ejercicios: [],
-      })),
-    }));
+    const plan = [];
+    for (let i = 0; i < focusPlan.length; i++) {
+      const focoDia = Array.isArray(focusPlan[i]) ? focusPlan[i] : [];
+      const minutos = ranked[i]?.minutos ?? 30;
+      const bloques = focoDia.map((g) => ({ grupo: g, ejercicios: [] }));
+      plan.push({
+        dia: i + 1,
+        foco: focoDia,
+        duracionEstimadaMin: minutos,
+        bloques,
+      });
+    }
+    return plan;
   }
 
-  // Generar con IA (reglas + ML si está disponible)
+  // Generar con IA + reglas (con toast)
   async function onGenerateAI(e) {
     e.preventDefault();
-    if (!user) return toast.info("Inicia sesión para guardar tu rutina.");
+    if (!user) return;
 
     const norm = validarInputs(genInputs);
     setGenLoading(true);
-
     try {
-      // 1) Algoritmo de reglas (recomendarRutinas)
       const ranked = await recomendarRutinas(norm);
+      let focusPlan = null;
+      let scheme = null;
+      let modelVer = "NA";
 
-      // 2) Intentar modelo ML solo si hay backend configurado
       const pred = await predictRoutineAPI(norm);
+      if (pred) {
+        focusPlan = Array.isArray(pred?.focus_plan) ? pred.focus_plan : null;
+        scheme = pred?.scheme || null;
+        modelVer = pred?.metadata?.model_version || "NA";
+      }
 
-      // Si la API responde, usamos su focus_plan; si no, derivamos del ranking
-      const focusPlan =
-        pred?.focus_plan && Array.isArray(pred.focus_plan)
-          ? pred.focus_plan
-          : ranked.slice(0, 3).map((r) => [r.foco || "General"]);
+      if (!focusPlan) {
+        const top = ranked.slice(0, 3).map((r) => [r.foco || "General"]);
+        focusPlan = top.length ? top : [["General"], ["General"], ["General"]];
+      }
 
-      const plan = buildPlanFromFocus(focusPlan, ranked);
+      let plan = buildPlanFromFocus(focusPlan, ranked);
 
       const { plan: planPP, resumen } = postProcessPlan(plan, {
         perfil: {
@@ -264,33 +206,28 @@ export default function Rutinas() {
         },
       });
 
-      const items = planToItems(planPP, pred?.scheme);
-      const totalMin = planPP.reduce(
-        (a, d) => a + (Number(d?.duracionEstimadaMin) || 0),
-        0
-      );
-      const genName = `Rutina ${OBJETIVOS[norm.objetivo]} · ${
-        FRECUENCIAS[norm.frecuencia]
-      } · ${TIEMPOS[norm.tiempo]}`;
+      const items = planToItems(planPP, scheme);
+      if (items.length === 0) throw new Error("Plan vacío");
 
+      const genName = `Rutina ${OBJETIVOS[norm.objetivo]} · ${FRECUENCIAS[norm.frecuencia]} · ${TIEMPOS[norm.tiempo]}`;
       await createRoutineWithToast(user.uid, {
         name: genName,
         items,
         _meta: {
-          minutos: totalMin,
-          fuente: pred ? "ML+rules" : "rules-only",
+          fuente: scheme ? "ML+rules" : "rules-only",
+          modelVersion: modelVer,
           postProcess: resumen,
           ...norm,
         },
       });
     } catch (err) {
       console.error(err);
-      toast.error("Error al generar la rutina.");
     } finally {
       setGenLoading(false);
     }
   }
 
+  // Editar / eliminar / ver contenido
   function openEdit(rt) {
     setEditing({
       id: rt.id,
@@ -298,36 +235,33 @@ export default function Rutinas() {
       itemsText: itemsToText(rt.items || []),
     });
   }
-
   async function onSaveEdit() {
     if (!user || !editing) return;
+    const payload = {
+      name: (editing.name || "").trim() || "Rutina",
+      items: parseItemsFromText(editing.itemsText || ""),
+    };
     try {
-      await updateRoutineWithToast(user.uid, editing.id, {
-        name: editing.name,
-        items: parseItemsFromText(editing.itemsText),
-      });
+      await updateRoutineWithToast(user.uid, editing.id, payload);
       setEditing(null);
     } catch (err) {
       console.error(err);
     }
   }
-
-  async function onDuplicate(rt) {
+  function openViewer(rt) {
+    setViewer({
+      id: rt.id,
+      name: rt.name || "Rutina",
+      itemsText: itemsToText(rt.items || []),
+    });
+  }
+  async function onDelete(rt) {
     if (!user) return;
     try {
-      await createRoutineWithToast(user.uid, {
-        name: `${rt.name} (copia)`,
-        items: rt.items || [],
-        _meta: { ...(rt._meta || {}) },
-      });
+      await deleteRoutineWithToast(user.uid, rt.id, rt.name);
     } catch (err) {
       console.error(err);
     }
-  }
-
-  function onDelete(rt) {
-    if (!user) return;
-    setConfirmDel({ id: rt.id, name: rt.name || "Rutina" });
   }
 
   // ---------- Render ----------
@@ -344,29 +278,51 @@ export default function Rutinas() {
       {/* Generador con IA */}
       <section className="rtn-section">
         <div className="rtn-card form-deco">
-          <h2>Generar Rutina</h2>
+          <div className="rtn-head">
+            <h2>Generar Rutina</h2>
+          </div>
           <form className="rtn-form" onSubmit={onGenerateAI}>
             <div className="rtn-grid-compact">
-              {[
-                ["Objetivo", "objetivo", OBJETIVOS],
-                ["Dificultad", "dificultad", DIFICULTADES],
-                ["Limitación", "limitacion", LIMITACIONES],
-                ["Tiempo", "tiempo", TIEMPOS],
-                ["Frecuencia", "frecuencia", FRECUENCIAS],
-              ].map(([lbl, key, opts]) => (
-                <Select
-                  key={key}
-                  label={lbl}
-                  value={genInputs[key]}
-                  onChange={(v) =>
-                    setGenInputs((s) => ({ ...s, [key]: Number(v) }))
-                  }
-                  options={Object.entries(opts).map(([v, t]) => ({
-                    value: v,
-                    label: t,
-                  }))}
-                />
-              ))}
+              <Select
+                label="Objetivo"
+                value={genInputs.objetivo}
+                onChange={(v) =>
+                  setGenInputs((s) => ({ ...s, objetivo: Number(v) }))
+                }
+                options={mapObj(OBJETIVOS)}
+              />
+              <Select
+                label="Dificultad"
+                value={genInputs.dificultad}
+                onChange={(v) =>
+                  setGenInputs((s) => ({ ...s, dificultad: Number(v) }))
+                }
+                options={mapObj(DIFICULTADES)}
+              />
+              <Select
+                label="Limitación"
+                value={genInputs.limitacion}
+                onChange={(v) =>
+                  setGenInputs((s) => ({ ...s, limitacion: Number(v) }))
+                }
+                options={mapObj(LIMITACIONES)}
+              />
+              <Select
+                label="Tiempo"
+                value={genInputs.tiempo}
+                onChange={(v) =>
+                  setGenInputs((s) => ({ ...s, tiempo: Number(v) }))
+                }
+                options={mapObj(TIEMPOS)}
+              />
+              <Select
+                label="Frecuencia"
+                value={genInputs.frecuencia}
+                onChange={(v) =>
+                  setGenInputs((s) => ({ ...s, frecuencia: Number(v) }))
+                }
+                options={mapObj(FRECUENCIAS)}
+              />
             </div>
             <div className="rtn-actions">
               <button className="btn" type="submit" disabled={genLoading}>
@@ -380,27 +336,31 @@ export default function Rutinas() {
       {/* Crear manual */}
       <section className="rtn-section">
         <div className="rtn-card form-deco">
-          <h2>Crear rutina (manual)</h2>
+          <div className="rtn-head">
+            <h2>Crear rutina (manual)</h2>
+          </div>
           <form className="rtn-form" onSubmit={onCreate}>
-            <label className="rtn-row">
-              Nombre
+            <div className="rtn-row">
+              <label>Nombre</label>
               <input
                 className="rtn-input"
+                placeholder="Ej. Full Body 45min"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
-            </label>
-            <label className="rtn-row">
-              Ejercicios (uno por línea)
+            </div>
+            <div className="rtn-row">
+              <label>Ejercicios (uno por línea)</label>
               <textarea
                 className="rtn-textarea"
                 rows={5}
+                placeholder={`Sentadilla\nPress banca\nRemo con barra`}
                 value={rawItems}
                 onChange={(e) => setRawItems(e.target.value)}
               />
-            </label>
+            </div>
             <div className="rtn-actions">
-              <button className="btn" disabled={!name || !rawItems}>
+              <button className="btn" type="submit" disabled={!name || !rawItems}>
                 + Guardar rutina
               </button>
             </div>
@@ -408,18 +368,17 @@ export default function Rutinas() {
         </div>
       </section>
 
-      {/* Lista */}
+      {/* Lista de rutinas */}
       <section className="rtn-section">
-        <h2>Tus rutinas</h2>
-        <div className="rtn-sec-note">{routines.length} en total</div>
+        <div className="rtn-head">
+          <h2>Tus rutinas</h2>
+          <div className="rtn-sec-note">{routines.length} en total</div>
+        </div>
+
         {loading ? (
           <div className="rtn-grid">
             {Array.from({ length: 3 }).map((_, i) => (
-              <div
-                key={i}
-                className="rtn-card skeleton"
-                style={{ height: 160 }}
-              />
+              <div key={i} className="rtn-card skeleton" style={{ height: 160 }} />
             ))}
           </div>
         ) : routines.length === 0 ? (
@@ -435,18 +394,20 @@ export default function Rutinas() {
             {routines.map((rt) => (
               <article key={rt.id} className="rtn-card">
                 <div className="rtn-card-head">
-                  <h3>{rt.name}</h3>
-                  <span className="pill">
-                    {(rt.items || []).length} ejercicios
-                  </span>
+                  <h3 className="rtn-card-title">{rt.name}</h3>
+                  <div className="rtn-badges">
+                    <span className="pill">
+                      {(rt.items || []).length} ejercicios
+                    </span>
+                  </div>
                 </div>
                 <ul className="rtn-items">
                   {(rt.items || [])
                     .slice(0, 5)
                     .map((it, idx) => (
-                      <li key={idx}>
+                      <li key={idx} className="rtn-item">
                         <span className="rtn-bullet">•</span>
-                        {it.name}
+                        <span>{it.name}</span>
                       </li>
                     ))}
                   {(rt.items || []).length > 5 && (
@@ -456,22 +417,13 @@ export default function Rutinas() {
                   )}
                 </ul>
                 <div className="rtn-card-actions">
-                  <button
-                    className="btn-secondary"
-                    onClick={() => openEdit(rt)}
-                  >
+                  <button className="btn-secondary" onClick={() => openViewer(rt)}>
+                    👁️ Ver contenido
+                  </button>
+                  <button className="btn-secondary" onClick={() => openEdit(rt)}>
                     ✏️ Editar
                   </button>
-                  <button
-                    className="btn-secondary"
-                    onClick={() => onDuplicate(rt)}
-                  >
-                    🧬 Duplicar
-                  </button>
-                  <button
-                    className="btn-danger"
-                    onClick={() => onDelete(rt)}
-                  >
+                  <button className="btn-danger" onClick={() => onDelete(rt)}>
                     🗑️ Eliminar
                   </button>
                 </div>
@@ -498,7 +450,7 @@ export default function Rutinas() {
               <label>Ejercicios (uno por línea)</label>
               <textarea
                 className="rtn-textarea"
-                rows={6}
+                rows={8}
                 value={editing.itemsText}
                 onChange={(e) =>
                   setEditing((s) => ({ ...s, itemsText: e.target.value }))
@@ -506,10 +458,7 @@ export default function Rutinas() {
               />
             </div>
             <div className="modal-actions">
-              <button
-                className="btn-secondary"
-                onClick={() => setEditing(null)}
-              >
+              <button className="btn-secondary" onClick={() => setEditing(null)}>
                 Cancelar
               </button>
               <button className="btn" onClick={onSaveEdit}>
@@ -520,42 +469,24 @@ export default function Rutinas() {
         </div>
       )}
 
-      {/* Modal eliminar */}
-      {confirmDel && (
-        <div className="modal-backdrop" onClick={() => setConfirmDel(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-title">Eliminar rutina</div>
-            <div className="modal-body">
-              <p>
-                ¿Seguro que deseas eliminar{" "}
-                <strong>{confirmDel.name}</strong>?
-              </p>
-              <p style={{ opacity: 0.8, marginTop: 6 }}>
-                Esta acción no se puede deshacer.
-              </p>
+      {/* Modal visor grande */}
+      {viewer && (
+        <div className="modal-backdrop" onClick={() => setViewer(null)}>
+          <div
+            className="modal modal--xl"
+            onClick={(e) => e.stopPropagation()}
+            aria-modal="true"
+            role="dialog"
+          >
+            <div className="modal-title">{viewer.name}</div>
+            <div className="modal-body modal-body--scroll">
+              <pre className="viewer-pre">
+{viewer.itemsText}
+              </pre>
             </div>
             <div className="modal-actions">
-              <button
-                className="btn-secondary"
-                onClick={() => setConfirmDel(null)}
-              >
-                Cancelar
-              </button>
-              <button
-                className="btn-danger"
-                onClick={async () => {
-                  try {
-                    await deleteRoutineWithToast(
-                      user.uid,
-                      confirmDel.id,
-                      confirmDel.name
-                    );
-                  } finally {
-                    setConfirmDel(null);
-                  }
-                }}
-              >
-                Eliminar
+              <button className="btn-secondary" onClick={() => setViewer(null)}>
+                Cerrar
               </button>
             </div>
           </div>
@@ -565,16 +496,11 @@ export default function Rutinas() {
   );
 }
 
-// ---------- Select ----------
 function Select({ label, value, onChange, options }) {
   return (
     <label className="rtn-row" style={{ minWidth: 220 }}>
       <span>{label}</span>
-      <select
-        className="rtn-input"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
+      <select className="rtn-input" value={value} onChange={(e) => onChange(e.target.value)}>
         {options.map((op) => (
           <option key={op.value} value={op.value}>
             {op.label}
@@ -583,4 +509,7 @@ function Select({ label, value, onChange, options }) {
       </select>
     </label>
   );
+}
+function mapObj(obj) {
+  return Object.entries(obj).map(([v, t]) => ({ value: Number(v), label: t }));
 }

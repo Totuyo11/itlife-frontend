@@ -7,7 +7,6 @@ import { toast } from "react-toastify";
 import { validarInputs, recommendRoutines } from "../recommender";
 import { createRoutineWithToast } from "../services/routines";
 
-// Opciones UI
 const OBJETIVOS = [
   { value: 1, label: "Perder peso" },
   { value: 2, label: "Ganar músculo" },
@@ -42,7 +41,6 @@ export default function RutinasRecomendadas() {
   const [saving3, setSaving3] = useState(false);
   const [results, setResults] = useState([]);
 
-  // Modal de detalles
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState(null);
 
@@ -58,7 +56,7 @@ export default function RutinasRecomendadas() {
 
     setLoading(true);
     try {
-      const catalogo = buildSmallCatalogForDemo(); // cambia por tu catálogo Firestore si aplica
+      const catalogo = buildSmallCatalogForDemo();
       const ranked = await recommendRoutines(norm, catalogo, { topK: 8 });
       setResults(ranked);
       if (!ranked.length) toast.info("No hubo coincidencias. Ajusta los filtros.");
@@ -74,8 +72,7 @@ export default function RutinasRecomendadas() {
     if (!user) return toast.info("Inicia sesión para guardar tus rutinas.");
     try {
       const name =
-        rec?.name ||
-        `Rutina — ${prettyFoco(rec.foco)} · ${rec.minutos || 30} min`;
+        rec?.name || `Rutina — ${prettyFoco(rec.foco)} · ${rec.minutos || 30} min`;
 
       const items =
         Array.isArray(rec?.items) && rec.items.length
@@ -116,9 +113,7 @@ export default function RutinasRecomendadas() {
         const rec = top[i];
         const name =
           rec?.name ||
-          `Recomendación #${i + 1} — ${prettyFoco(rec.foco)} · ${
-            rec.minutos || 30
-          } min`;
+          `Recomendación #${i + 1} — ${prettyFoco(rec.foco)} · ${rec.minutos || 30} min`;
 
         const items =
           Array.isArray(rec?.items) && rec.items.length
@@ -163,19 +158,14 @@ export default function RutinasRecomendadas() {
     <div className="rtn-wrap">
       <header className="rtn-hero">
         <h1 className="rtn-title">✨ Recomendador de Rutinas</h1>
-        <p className="rtn-sub">
-          Acomoda tus filtros y guarda **varias** recomendaciones 🔥
-        </p>
+        <p className="rtn-sub">Elige y guarda hasta tres opciones 💪</p>
       </header>
 
-      {/* Filtros */}
       <section className="rtn-section">
         <div className="rtn-card form-deco">
           <form className="rtn-form" onSubmit={onRecommend}>
             <div className="rtn-grid-compact">
-              <Select
-                label="Sexo"
-                value={form.sexo}
+              <Select label="Sexo" value={form.sexo}
                 onChange={(v) => setForm((s) => ({ ...s, sexo: Number(v) }))}
                 options={[
                   { value: 0, label: "Prefiero no decir" },
@@ -183,36 +173,19 @@ export default function RutinasRecomendadas() {
                   { value: 2, label: "Masculino" },
                 ]}
               />
-              <Input
-                label="Edad"
-                type="number"
-                min={12}
-                max={90}
-                value={form.edad}
-                onChange={(v) =>
-                  setForm((s) => ({ ...s, edad: Number(v) || 18 }))
-                }
+              <Input label="Edad" type="number" min={12} max={90} value={form.edad}
+                onChange={(v) => setForm((s) => ({ ...s, edad: Number(v) || 18 }))}
               />
-              <Select
-                label="Experiencia"
-                value={form.dificultad}
-                onChange={(v) =>
-                  setForm((s) => ({ ...s, dificultad: Number(v) }))
-                }
+              <Select label="Experiencia" value={form.dificultad}
+                onChange={(v) => setForm((s) => ({ ...s, dificultad: Number(v) }))}
                 options={EXPERIENCIA}
               />
-              <Select
-                label="Minutos"
-                value={form.tiempo}
+              <Select label="Minutos" value={form.tiempo}
                 onChange={(v) => setForm((s) => ({ ...s, tiempo: Number(v) }))}
                 options={TIEMPO}
               />
-              <Select
-                label="Objetivo"
-                value={form.objetivo}
-                onChange={(v) =>
-                  setForm((s) => ({ ...s, objetivo: Number(v) }))
-                }
+              <Select label="Objetivo" value={form.objetivo}
+                onChange={(v) => setForm((s) => ({ ...s, objetivo: Number(v) }))}
                 options={OBJETIVOS}
               />
             </div>
@@ -226,7 +199,6 @@ export default function RutinasRecomendadas() {
                 disabled={!results.length || saving3}
                 onClick={saveTop3}
                 style={{ marginLeft: 8 }}
-                title="Guarda las 3 mejores"
               >
                 {saving3 ? "Guardando..." : "Guardar Top 3"}
               </button>
@@ -235,22 +207,17 @@ export default function RutinasRecomendadas() {
         </div>
       </section>
 
-      {/* Resultados */}
       <section className="rtn-section">
         <div className="rtn-head">
           <h2>Resultados</h2>
-          {!!results.length && (
-            <div className="rtn-sec-note">{results.length} opciones</div>
-          )}
+          {!!results.length && <div className="rtn-sec-note">{results.length} opciones</div>}
         </div>
 
         {results.length === 0 ? (
           <div className="rtn-empty">
             <div className="rtn-empty-ico">🔎</div>
             <div className="rtn-empty-title">Aún no hay recomendaciones</div>
-            <div className="rtn-empty-sub">
-              Ajusta los filtros y presiona “Recomendar”.
-            </div>
+            <div className="rtn-empty-sub">Ajusta los filtros y presiona “Recomendar”.</div>
           </div>
         ) : (
           <div className="rec-grid">
@@ -262,23 +229,13 @@ export default function RutinasRecomendadas() {
                     <span className="rec-rank">#{i + 1}</span>
                   </div>
                   <div className="rec-badges">
-                    {r.objetivoId != null && (
-                      <span className="pill">{labelObjetivo(r.objetivoId)}</span>
-                    )}
-                    {r.nivel != null && (
-                      <span className="pill">{prettyNivel(r.nivel)}</span>
-                    )}
-                    {r.minutos != null && (
-                      <span className="pill">{r.minutos} min</span>
-                    )}
+                    {r.objetivoId != null && <span className="pill">{labelObjetivo(r.objetivoId)}</span>}
+                    {r.nivel != null && <span className="pill">{prettyNivel(r.nivel)}</span>}
+                    {r.minutos != null && <span className="pill">{r.minutos} min</span>}
                     {r.explain?.mlSuggest?.metadata?.model_version && (
                       <span className="pill">ML v{r.explain.mlSuggest.metadata.model_version}</span>
                     )}
-                    {Number.isFinite(r.score) && (
-                      <span className="pill">
-                        ⭐ {r.score.toFixed(2)}
-                      </span>
-                    )}
+                    {Number.isFinite(r.score) && <span className="pill">⭐ {r.score.toFixed(2)}</span>}
                   </div>
                 </div>
 
@@ -291,14 +248,9 @@ export default function RutinasRecomendadas() {
                 </div>
 
                 <div className="rec-actions">
-                  <button className="btn" onClick={() => saveOne(r)}>
-                    Guardar esta
-                  </button>
-                  <button
-                    className="btn-secondary"
-                    onClick={() => openDetails(r, i + 1)}
-                  >
-                    Ver detalles
+                  <button className="btn" onClick={() => saveOne(r)}>Guardar esta</button>
+                  <button className="btn-secondary" onClick={() => openDetails(r, i + 1)}>
+                    Ver contenido
                   </button>
                 </div>
               </article>
@@ -307,24 +259,17 @@ export default function RutinasRecomendadas() {
         )}
       </section>
 
-      {/* Modal Detalles */}
       {open && detail && (
         <div className="modal-backdrop" onClick={() => setOpen(false)}>
-          <div className="modal rec-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal modal--xl" onClick={(e) => e.stopPropagation()}>
             <div className="modal-title">
               <strong>#{detail.index}</strong> {detail.name || "Rutina"}
             </div>
-            <div className="modal-body">
+            <div className="modal-body modal-body--scroll">
               <div className="rec-badges" style={{ marginBottom: 12 }}>
-                {detail.objetivoId != null && (
-                  <span className="pill">{labelObjetivo(detail.objetivoId)}</span>
-                )}
-                {detail.nivel != null && (
-                  <span className="pill">{prettyNivel(detail.nivel)}</span>
-                )}
-                {detail.minutos != null && (
-                  <span className="pill">{detail.minutos} min</span>
-                )}
+                {detail.objetivoId != null && <span className="pill">{labelObjetivo(detail.objetivoId)}</span>}
+                {detail.nivel != null && <span className="pill">{prettyNivel(detail.nivel)}</span>}
+                {detail.minutos != null && <span className="pill">{detail.minutos} min</span>}
                 {detail.scheme && <span className="pill">{detail.scheme}</span>}
               </div>
               <ul className="rec-list">
@@ -337,12 +282,8 @@ export default function RutinasRecomendadas() {
               </ul>
             </div>
             <div className="modal-actions">
-              <button className="btn" onClick={() => saveOne(detail)}>
-                Guardar esta
-              </button>
-              <button className="btn-secondary" onClick={() => setOpen(false)}>
-                Cerrar
-              </button>
+              <button className="btn" onClick={() => saveOne(detail)}>Guardar esta</button>
+              <button className="btn-secondary" onClick={() => setOpen(false)}>Cerrar</button>
             </div>
           </div>
         </div>
@@ -351,20 +292,13 @@ export default function RutinasRecomendadas() {
   );
 }
 
-/* Helpers UI */
 function Select({ label, value, onChange, options }) {
   return (
     <label className="rtn-row" style={{ minWidth: 220 }}>
       <span>{label}</span>
-      <select
-        className="rtn-input"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
+      <select className="rtn-input" value={value} onChange={(e) => onChange(e.target.value)}>
         {options.map((op) => (
-          <option key={op.value} value={op.value}>
-            {op.label}
-          </option>
+          <option key={op.value} value={op.value}>{op.label}</option>
         ))}
       </select>
     </label>
@@ -374,13 +308,7 @@ function Input({ label, value, onChange, type = "text", ...rest }) {
   return (
     <label className="rtn-row" style={{ minWidth: 220 }}>
       <span>{label}</span>
-      <input
-        className="rtn-input"
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        {...rest}
-      />
+      <input className="rtn-input" type={type} value={value} onChange={(e) => onChange(e.target.value)} {...rest} />
     </label>
   );
 }
@@ -396,8 +324,6 @@ function prettyFoco(f) {
   if (!f) return "general";
   return String(f).replaceAll("_", " ").toLowerCase();
 }
-
-/* DEMO: catálogo mínimo (reemplaza por Firestore si lo tienes) */
 function buildSmallCatalogForDemo() {
   return [
     { id: "c1", name: "Full Body 30", objetivoId: 1, nivel: 0, foco: "fullbody", minutos: 30, baseScore: 0.6, scheme: "fatloss" },

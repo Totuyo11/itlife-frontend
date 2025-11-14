@@ -1,28 +1,29 @@
+// src/pages/Ejercicios.js
 import React, { useMemo, useState } from "react";
 import "./Register.css";
 
 /**
  * 🧩 Cómo usar este archivo
- * 1) Pega tu segunda lista (la tuya) dentro de USER_EXERCISES abajo (mismo formato).
- * 2) El componente hace merge automático por `id` y elimina duplicados.
- * 3) Soporta campos extra: `desc` (descripción corta) e `img` (URL de imagen).
- * 4) Si más adelante migras a Firestore, puedes reemplazar `ALL_SOURCES` con datos remotos.
+ * - Se combinan los ejercicios de tu compañero (COMPANION_EXERCISES)
+ *   con tu lista extendida (USER_EXERCISES, ya con imágenes y descripciones).
+ * - Si más adelante migras a Firestore, puedes reemplazar ALL_SOURCES
+ *   por lo que leas de la BD.
  */
 
-// 👉 Lista de tu compañero (la que nos pasaste)
+// 👉 Lista de tu compañero (versión completa que ya tenías)
 const COMPANION_EXERCISES = [
   { id: "p-press-banca", name: "Press de banca", muscle: "Pecho", level: "intermedio", equip: "barra", focus: ["fuerza"], img: null },
   { id: "p-press-mancuerna", name: "Press con mancuerna", muscle: "Pecho", level: "principiante", equip: "mancuerna", focus: ["fuerza"], img: null },
   { id: "p-press-over-mancuerna", name: "Pull over con mancuerna", muscle: "Pecho", level: "principiante", equip: "mancuerna", focus: ["fuerza"], img: null },
   { id: "p-aperturas", name: "Aperturas con mancuernas", muscle: "Pecho", level: "principiante", equip: "mancuernas", focus: ["hipertrofia"], img: null },
-  { id: "p-press-banca-inclinado", name: "Press de banca inclinado", muscle: "Pecho", level: "avanzado", equip: "barra", focus: ["fuerza"], img: null },
+  
 
   { id: "e-remoconbarra", name: "Remo con barra", muscle: "Espalda", level: "avanzado", equip: "barra", focus: ["fuerza"], img: null },
   { id: "e-remoenpunta", name: "Remo en punta", muscle: "Espalda", level: "principiante", equip: "barra", focus: ["hipertrofia"], img: null },
   { id: "e-jalonpolea", name: "Jalon de polea al pecho", muscle: "Espalda", level: "principiante", equip: "polea", focus: ["hipertrofia"], img: null },
   { id: "e-remopolea", name: "Remo con polea", muscle: "Espalda", level: "principiante", equip: "polea", focus: ["hipertrofia"], img: null },
 
-  { id: "h-sentadilla", name: "Sentadilla", muscle: "Pierna", level: "principiante", equip: "barra", focus: ["fuerza","hipertrofia"], img: null },
+  { id: "h-sentadilla", name: "Sentadilla", muscle: "Pierna", level: "principiante", equip: "barra", focus: ["fuerza", "hipertrofia"], img: null },
   { id: "h-prensa", name: "Prensa", muscle: "Pierna", level: "principiante", equip: "máquina", focus: ["hipertrofia"], img: null },
   { id: "h-pesomuerto", name: "Peso muerto", muscle: "Pierna", level: "intermedio", equip: "barra", focus: ["resistencia"], img: null },
   { id: "h-aductores", name: "Aductores", muscle: "Pierna", level: "principiante", equip: "máquina", focus: ["hipertrofia"], img: null },
@@ -44,56 +45,78 @@ const COMPANION_EXERCISES = [
   { id: "c-Elevacion-pelvis", name: "Elevacion de pelvis en banco vertical", muscle: "Abdomen", level: "principiante", equip: "peso corporal", focus: ["estabilidad"], img: null },
 ];
 
-// 👉 Pega aquí tu lista (misma estructura). Si aún no la tienes a la mano, déjalo vacío y vuelve luego.
+// 👉 Lista extendida (la que pegaste con imágenes + descripciones)
 const USER_EXERCISES = [
-  // === TUS ORIGINALES (con desc + img) ===
-  { id: "p-press-banca", name: "Press de banca", muscle: "pecho", level: "intermedio", equip: "barra", focus: ["fuerza"], img: "/img/exercises/press-banca.jpg", desc: "Tumbado en banco plano, baja la barra al pecho con codos ~45° y empuja controlado. Escápulas retraídas y pies firmes." },
-  { id: "p-aperturas", name: "Aperturas con mancuernas", muscle: "pecho", level: "principiante", equip: "mancuernas", focus: ["hipertrofia"], img: "/img/exercises/aperturas-mancuernas.jpg", desc: "Abre en semicurva hasta estirar pectoral; codos ligeramente flexionados. Cierra sin chocar mancuernas." },
-  { id: "e-dominadas", name: "Dominadas", muscle: "espalda", level: "avanzado", equip: "peso corporal", focus: ["fuerza"], img: "/img/exercises/dominadas.jpg", desc: "Tira hasta pasar mentón, baja controlado. Activa dorsales y core; evita balanceo." },
-  { id: "e-remopolea", name: "Remo en polea", muscle: "espalda", level: "principiante", equip: "polea", focus: ["hipertrofia"], img: "/img/exercises/remo-polea.jpg", desc: "Espalda neutra; tira al ombligo llevando hombros atrás. Controla el retorno." },
-  { id: "h-sentadilla", name: "Sentadilla", muscle: "pierna", level: "intermedio", equip: "barra", focus: ["fuerza","hipertrofia"], img: "/img/exercises/sentadilla.jpg", desc: "Baja con cadera atrás y rodillas alineadas. Talones apoyados; columna neutra." },
-  { id: "h-prensa", name: "Prensa", muscle: "pierna", level: "principiante", equip: "máquina", focus: ["hipertrofia"], img: "/img/exercises/prensa.jpg", desc: "Desciende sin despegar cadera del respaldo. Extiende sin bloquear rodillas." },
-  { id: "h-zancadas", name: "Zancadas", muscle: "pierna", level: "intermedio", equip: "mancuernas", focus: ["resistencia"], img: "/img/exercises/zancadas.jpg", desc: "Paso largo al frente; baja controlado con tronco erguido. Empuja con el talón para volver." },
-  { id: "h-curl-biceps", name: "Curl de bíceps", muscle: "brazo", level: "principiante", equip: "mancuernas", focus: ["hipertrofia"], img: "/img/exercises/curl-biceps.jpg", desc: "Codos pegados; flexiona y extiende sin balancear. Control en la bajada." },
-  { id: "h-press-militar", name: "Press militar", muscle: "hombro", level: "intermedio", equip: "barra", focus: ["fuerza"], img: "/img/exercises/press-militar.jpg", desc: "Empuja la barra por encima de la cabeza con core firme; evita arquear lumbar." },
-  { id: "c-plancha", name: "Plancha", muscle: "core", level: "principiante", equip: "peso corporal", focus: ["estabilidad"], img: "/img/exercises/plancha.jpg", desc: "Alinea hombros–cadera–tobillos; abdomen y glúteo activos. No hundas la lumbar." },
+  { id: "p-aperturas", name: "Aperturas con mancuernas", muscle: "pecho", level: "principiante", equip: "mancuernas", focus: ["hipertrofia"], img: "/img/exercises/apertura-mancuerna.png", desc: "Abre en semicurva hasta estirar pectoral; codos ligeramente flexionados. Cierra sin chocar mancuernas." },
+  { id: "p-cruces-polea", name: "Cruces en polea", muscle: "pecho", level: "intermedio", equip: "polea", focus: ["hipertrofia"], img: "/img/exercises/cruce-polea.png", desc: "Hay que situarse de pie entre las dos poleas, con las piernas semiflexionadas, con el tronco ligeramente flexionado y con la fijación de los músculos abdominales. Se parte de los brazos en cruz y los codos semiflexionados, se juntan cerrándose a modo de abrazo, al frente y abajo sin variar la flexión del codo en todo el recorrido. Se inspira al abrir y se espira al terminar de cerrar." },
+  { id: "p-flexiones", name: "Flexiones", muscle: "pecho", level: "principiante", equip: "peso corporal", focus: ["resistencia"], img: "/img/exercises/flexiones.png", desc: "Tumbados mirando al suelo (decúbito prono)... La cadera no debe doblarse, el cuerpo baja rígido y alineado como una tabla. Se inspira en la bajada y se espira en la subida." },
+  { id: "p-press-mancuerna", name: "Press con mancuerna", muscle: "Pecho", level: "principiante", equip: "mancuerna", focus: ["fuerza"], img: "/img/exercises/p-press-mancuerna.png", desc: "Tumbado sobre un banco plano... Se inspira en la bajada y se espira al terminar de subir." },
+  { id: "p-press-mancuernas-plano", name: "Press con mancuernas plano", muscle: "pecho", level: "principiante", equip: "mancuernas", focus: ["hipertrofia"], img: "/img/exercises/p-press-mancuerna.png", desc: "Tumbado sobre un banco plano... recorrido estable, controlado y simétrico." },
+  { id: "p-press-banca", name: "Press de banca", muscle: "pecho", level: "intermedio", equip: "barra", focus: ["fuerza"], img: "/img/exercises/p-press-banca.png", desc: "Tumbado sobre un banco plano... baja la barra al pecho y empuja verticalmente de forma controlada." },
+  { id: "p-press-declinado", name: "Press inclinado", muscle: "pecho", level: "intermedio", equip: "barra", focus: ["fuerza"], img: "/img/exercises/p-press-banca-inclinado.png", desc: "Tumbado sobre un banco inclinado 30º–45º... enfatiza la parte superior del pectoral." },
+  { id: "p-press-over-mancuerna", name: "Pull over con mancuerna", muscle: "Pecho", level: "principiante", equip: "mancuerna", focus: ["fuerza"], img: "/img/exercises/p-press-over-mancuerna.png", desc: "Tumbado sobre un banco, baja la mancuerna por detrás de la cabeza con codos semiflexionados, sintiendo el estiramiento del pectoral." },
 
-  // === NUEVOS PARA LLEGAR ~30 (IDs únicos) ===
-  { id: "p-press-mancuernas-plano", name: "Press con mancuernas plano", muscle: "pecho", level: "principiante", equip: "mancuernas", focus: ["hipertrofia"], img: "/img/exercises/press-mancuernas-plano.jpg", desc: "Similar al press, recorrido estable y controlado; mancuernas permiten mayor rango y estabilidad bilateral." },
-  { id: "p-cruces-polea", name: "Cruces en polea", muscle: "pecho", level: "intermedio", equip: "polea", focus: ["hipertrofia"], img: "/img/exercises/cruces-polea.jpg", desc: "Desde poleas altas, junta manos frente al pecho con ligera flexión de codos. Mantén tensión constante." },
-  { id: "p-flexiones", name: "Flexiones (lagartijas)", muscle: "pecho", level: "principiante", equip: "peso corporal", focus: ["resistencia"], img: "/img/exercises/flexiones.jpg", desc: "Cuerpo alineado; baja pecho cercano al suelo y empuja fuerte. Manos al ancho de hombros." },
-  { id: "p-press-declinado", name: "Press declinado", muscle: "pecho", level: "intermedio", equip: "barra", focus: ["fuerza"], img: "/img/exercises/press-declinado.jpg", desc: "Banco declinado; baja controlado a la parte baja del pecho, empuja vertical. Enfatiza pectoral inferior." },
+  { id: "h-abduccion-polea", name: "Elevación de talones sentado", muscle: "pierna", level: "intermedio", equip: "polea", focus: ["estabilidad"], img: "/img/exercises/talon.png", desc: "Sentado con las rodillas flexionadas en 90º, apoya sólo el metatarso en un escalón y eleva talones al máximo recorrido." },
+  { id: "h-aductores", name: "Aductores", muscle: "Pierna", level: "principiante", equip: "máquina", focus: ["hipertrofia"], img: "/img/exercises/aductores.png", desc: "Sentado en la máquina de aductores, abre hasta tu rango cómodo y cierra en aducción controlada." },
+  { id: "h-curl-femoral", name: "Curl femoral", muscle: "pierna", level: "principiante", equip: "máquina", focus: ["hipertrofia"], img: "/img/exercises/curl.png", desc: "En decúbito prono, flexiona las rodillas llevando el rodillo hacia los talones sin despegar la cadera del banco." },
+  { id: "h-elevacionpierna", name: "Elevación pierna lateral", muscle: "Pierna", level: "principiante", equip: "polea", focus: ["hipertrofia"], img: "/img/exercises/pierna-lateral.png", desc: "De pie, lleva la pierna en abducción sin mover el tronco. Controla tanto la subida como la bajada." },
+  { id: "h-extension-cuadriceps", name: "Extensión de cuádriceps", muscle: "pierna", level: "principiante", equip: "máquina", focus: ["hipertrofia"], img: "/img/exercises/extension-cuadri.png", desc: "En máquina, extiende la pierna desde 90º hasta casi la extensión completa en control excéntrico." },
+  { id: "h-pesomuerto", name: "Peso muerto", muscle: "Pierna", level: "intermedio", equip: "barra", focus: ["resistencia"], img: "/img/exercises/peso-muerto.png", desc: "De pie, flexiona la cadera manteniendo la barra cerca del cuerpo y la espalda neutra." },
+  { id: "h-prensa", name: "Prensa", muscle: "pierna", level: "principiante", equip: "máquina", focus: ["hipertrofia"], img: "/img/exercises/prensa.png", desc: "En prensa inclinada, baja sin despegar la cadera y empuja hasta casi extender rodillas." },
+  { id: "h-sentadilla", name: "Sentadilla", muscle: "pierna", level: "intermedio", equip: "barra", focus: ["fuerza", "hipertrofia"], img: "/img/exercises/sentadilla.png", desc: "De pie, pies ligeramente abiertos, baja flexionando rodillas sin levantar talones y manteniendo abdomen activo." },
+  { id: "h-bulgara", name: "Patadas de glúteo", muscle: "pierna", level: "intermedio", equip: "mancuernas", focus: ["hipertrofia", "estabilidad"], img: "/img/exercises/patadas.png", desc: "En posición cuadrúpeda, lanza patadas hacia arriba con la rodilla flexionada, activando glúteos." },
+  { id: "h-step-up", name: "Elevación de talones en máquina", muscle: "pierna", level: "principiante", equip: "mancuernas", focus: ["resistencia"], img: "/img/exercises/talones.png", desc: "De pie, metatarso en el borde de un escalón, eleva y desciende talones de forma controlada." },
+  { id: "h-zancadas", name: "Zancadas", muscle: "pierna", level: "intermedio", equip: "mancuernas", focus: ["resistencia"], img: "/img/exercises/zancada.png", desc: "Da un paso largo al frente, baja con control y regresa impulsando con la pierna adelantada." },
 
-  { id: "e-jalon-cerrado", name: "Jalón agarre cerrado", muscle: "espalda", level: "principiante", equip: "polea", focus: ["hipertrofia"], img: "/img/exercises/jalon-cerrado.jpg", desc: "Agarre neutro/cerrado; tira al esternón llevando codos pegados. Controla la subida." },
-  { id: "e-face-pull", name: "Face pull", muscle: "espalda", level: "intermedio", equip: "polea", focus: ["estabilidad"], img: "/img/exercises/face-pull.jpg", desc: "Con cuerda a cara, tira separando manos y llevando codos altos. Activa deltoide posterior y escápulas." },
-  { id: "e-pull-over-polea", name: "Pull-over en polea (dorsal)", muscle: "espalda", level: "intermedio", equip: "polea", focus: ["hipertrofia"], img: "/img/exercises/pull-over-polea.jpg", desc: "Brazos casi extendidos, lleva la barra de arriba hacia los muslos con dorsales. Evita flexionar codos en exceso." },
-  { id: "e-remo-mancuerna", name: "Remo con mancuerna a una mano", muscle: "espalda", level: "principiante", equip: "mancuernas", focus: ["hipertrofia"], img: "/img/exercises/remo-mancuerna-una-mano.jpg", desc: "Apoya rodilla y mano en banco; tira la mancuerna al costado del torso sin rotar tronco." },
+  { id: "b-curl-barra", name: "Curl con barra", muscle: "Brazo", level: "principiante", equip: "barra", focus: ["hipertrofia"], img: "/img/exercises/b-curl-barra.png", desc: "De pie, con tronco fijo, flexiona los codos llevando la barra hacia los hombros sin balancear." },
+  { id: "b-curl-concentrado", name: "Curl concentrado", muscle: "Brazo", level: "principiante", equip: "mancuernas", focus: ["hipertrofia"], img: "/img/exercises/b-curl-concentrado.png", desc: "Sentado, apoya el codo en la cara interna del muslo y realiza el curl de forma estricta." },
+  { id: "b-curl-biceps", name: "Curl en polea", muscle: "Brazo", level: "principiante", equip: "mancuernas", focus: ["hipertrofia"], img: "/img/exercises/curl-polea.png", desc: "De pie, de lado a la polea, tira del mango hacia el cuello manteniendo el codo fijo." },
+  { id: "b-martillo", name: "Extensiones en polea", muscle: "brazo", level: "principiante", equip: "mancuernas", focus: ["hipertrofia"], img: "/img/exercises/extension-polea.png", desc: "Frente a la polea alta, baja la barra en extensión manteniendo codos pegados al tronco." },
+  { id: "b-triceps-polea", name: "Extensión de mancuerna a dos manos", muscle: "brazo", level: "principiante", equip: "polea", focus: ["hipertrofia"], img: "/img/exercises/copa.png", desc: "De pie o sentado, baja la mancuerna por detrás de la cabeza y extiende sin abrir los codos." },
+  { id: "b-fondos-triceps", name: "Fondos en paralelas (tríceps)", muscle: "brazo", level: "intermedio", equip: "peso corporal", focus: ["fuerza"], img: "/img/exercises/fondos.png", desc: "En paralelas, desciende en vertical con codos pegados y extiende hasta arriba." },
+  { id: "b-predicador", name: "Predicador", muscle: "Brazo", level: "principiante", equip: "mancuernas", focus: ["hipertrofia"], img: "/img/exercises/b-predicador.png", desc: "Con tríceps apoyado en el banco, baja casi a extensión completa y sube sin perder tensión." },
+  { id: "b-press-frances", name: "Press francés", muscle: "brazo", level: "intermedio", equip: "barra EZ", focus: ["hipertrofia"], img: "/img/exercises/press-francess.png", desc: "Acostado, baja la barra hacia la frente manteniendo codos fijos y extiende sin bloquear." },
+  { id: "b-extension-polea-cuerda", name: "Extensiones en polea con cuerda", muscle: "brazo", level: "intermedio", equip: "poleas", focus: ["hipertrofia"], img: "/img/exercises/cuerda.png", desc: "Frente a la polea, extiende los codos hacia abajo separando ligeramente las puntas de la cuerda." },
 
-  { id: "h-bulgara", name: "Sentadilla búlgara", muscle: "pierna", level: "intermedio", equip: "mancuernas", focus: ["hipertrofia","estabilidad"], img: "/img/exercises/sentadilla-bulgara.jpg", desc: "Pie trasero elevado; baja vertical controlado y empuja con el talón delantero. Gran estímulo de glúteo y cuádriceps." },
-  { id: "h-extension-cuadriceps", name: "Extensión de cuádriceps", muscle: "pierna", level: "principiante", equip: "máquina", focus: ["hipertrofia"], img: "/img/exercises/extension-cuadriceps.jpg", desc: "Extiende la pierna en máquina manteniendo cadera pegada al asiento. Pausa arriba; baja controlado." },
-  { id: "h-curl-femoral", name: "Curl femoral tumbado", muscle: "pierna", level: "principiante", equip: "máquina", focus: ["hipertrofia"], img: "/img/exercises/curl-femoral.jpg", desc: "Flexiona rodillas llevando el rodillo hacia glúteos; controla el retorno sin despegar cadera." },
-  { id: "h-abduccion-polea", name: "Abducción en polea", muscle: "pierna", level: "intermedio", equip: "polea", focus: ["estabilidad"], img: "/img/exercises/abduccion-polea.jpg", desc: "Tobillera en polea baja; aleja la pierna hacia fuera controlando tronco. Activa glúteo medio." },
-  { id: "h-step-up", name: "Step-up en banco", muscle: "pierna", level: "principiante", equip: "mancuernas", focus: ["resistencia"], img: "/img/exercises/step-up.jpg", desc: "Sube al banco con una pierna empujando desde el talón y baja controlado. Alterna piernas." },
+  { id: "e-dominadas", name: "Dominadas", muscle: "espalda", level: "avanzado", equip: "peso corporal", focus: ["fuerza"], img: "/img/exercises/dominadas.png", desc: "En barra fija, tira hasta acercar el pecho a la barra y baja controlado." },
+  { id: "e-jalonpolea", name: "Jalon de polea al pecho", muscle: "Espalda", level: "principiante", equip: "polea", focus: ["hipertrofia"], img: "/img/exercises/jalon-polea-pecho.png", desc: "Sentado, tira de la barra hacia la parte superior del pectoral arqueando ligeramente la espalda." },
+  { id: "e-pull-over-polea", name: "Pull-over en polea (dorsal)", muscle: "espalda", level: "intermedio", equip: "polea", focus: ["hipertrofia"], img: "/img/exercises/polea-espalda.png", desc: "De pie, baja la barra desde arriba hacia los muslos manteniendo codos casi extendidos." },
+  { id: "e-remoconbarra", name: "Remo con barra", muscle: "Espalda", level: "avanzado", equip: "barra", focus: ["fuerza"], img: "/img/exercises/remo-barra.png", desc: "Con tronco inclinado, tira de la barra hacia el abdomen manteniendo espalda recta." },
+  { id: "e-remo-mancuerna", name: "Remo con mancuerna a una mano", muscle: "espalda", level: "principiante", equip: "mancuernas", focus: ["hipertrofia"], img: "/img/exercises/remo-mancuerna.png", desc: "Apoya una mano y rodilla en el banco y tira la mancuerna hacia la cadera sin rotar tronco." },
+  { id: "e-remopolea", name: "Remo en polea", muscle: "espalda", level: "principiante", equip: "polea", focus: ["hipertrofia"], img: "/img/exercises/remo-polea.png", desc: "Sentado frente a la polea, tira el mango al abdomen ensanchando el pecho." },
+  { id: "e-remoenpunta", name: "Remo en punta", muscle: "Espalda", level: "principiante", equip: "barra", focus: ["hipertrofia"], img: "/img/exercises/remo-punta.png", desc: "Con barra T, tira hacia el abdomen con codos abiertos y tronco inclinado." },
 
-  { id: "o-press-arnold", name: "Press Arnold", muscle: "hombro", level: "intermedio", equip: "mancuernas", focus: ["hipertrofia"], img: "/img/exercises/press-arnold.jpg", desc: "Inicia con palmas hacia ti, rota durante el empuje hasta llevarlas al frente arriba. Controla la bajada." },
-  { id: "o-pajaros", name: "Pájaros (deltoide posterior)", muscle: "hombro", level: "principiante", equip: "mancuernas", focus: ["hipertrofia"], img: "/img/exercises/pajaros.jpg", desc: "Tronco inclinado; abre brazos en arco activando deltoide posterior. Evita encoger trapecios." },
-  { id: "o-remo-menton", name: "Remo al mentón con barra", muscle: "hombro", level: "intermedio", equip: "barra", focus: ["hipertrofia"], img: "/img/exercises/remo-menton.jpg", desc: "Tira la barra hacia el pecho/mentón con codos altos. Rango cómodo; evita dolor en hombro." },
+  { id: "c-Elevacion-pelvis", name: "Elevacion de pelvis en banco vertical", muscle: "Abdomen", level: "principiante", equip: "peso corporal", focus: ["estabilidad"], img: "/img/exercises/elevacion-pelvis.png", desc: "En banco vertical, eleva piernas y enrolla la pelvis hacia el esternón." },
+  { id: "c-elevacion-vertical", name: "Elevacion vertical de piernas", muscle: "Abdomen", level: "principiante", equip: "peso corporal", focus: ["estabilidad"], img: "/img/exercises/piernas.png", desc: "Boca arriba, eleva piernas en vertical y realiza pequeños impulsos levantando zona lumbar." },
+  { id: "c-tijeras", name: "Tijeras", muscle: "Abdomen", level: "principiante", equip: "peso corporal", focus: ["estabilidad"], img: "/img/exercises/tijeras.png", desc: "Sentado en banco, extiende y flexiona piernas y tronco manteniendo tensión en el core." },
 
-  { id: "b-triceps-polea", name: "Extensión de tríceps en polea", muscle: "brazo", level: "principiante", equip: "polea", focus: ["hipertrofia"], img: "/img/exercises/triceps-polea.jpg", desc: "Codos pegados; extiende hacia abajo y bloquea suave, sube controlado sin despegar codos." },
-  { id: "b-press-frances", name: "Press francés", muscle: "brazo", level: "intermedio", equip: "barra EZ", focus: ["hipertrofia"], img: "/img/exercises/press-frances.jpg", desc: "Acostado, baja la barra hacia la frente y extiende. Codos fijos apuntando arriba." },
-  { id: "b-martillo", name: "Curl martillo", muscle: "brazo", level: "principiante", equip: "mancuernas", focus: ["hipertrofia"], img: "/img/exercises/curl-martillo.jpg", desc: "Agarre neutro; sube y baja controlado para trabajar braquial y braquiorradial." },
-  { id: "b-fondos-triceps", name: "Fondos en paralelas (tríceps)", muscle: "brazo", level: "intermedio", equip: "peso corporal", focus: ["fuerza"], img: "/img/exercises/fondos-triceps.jpg", desc: "Tronco más vertical, codos pegados. Desciende controlado y empuja extendiendo codos." },
+  { id: "o-elevacion-frontal", name: "Elevacion frontal", muscle: "Hombro", level: "principiante", equip: "mancuernas", focus: ["fuerza"], img: "/img/exercises/elevacion-frontal.png", desc: "De pie, eleva mancuernas al frente hasta altura de la cabeza sin balancear." },
+  { id: "o-pajaros", name: "Pájaros", muscle: "hombro", level: "principiante", equip: "mancuernas", focus: ["hipertrofia"], img: "/img/exercises/pajaros.png", desc: "Con pecho apoyado o tronco inclinado, abre brazos en cruz activando deltoide posterior." },
+  { id: "o-press-arnold", name: "Elevacion frontales en polea baja", muscle: "hombro", level: "intermedio", equip: "mancuernas", focus: ["hipertrofia"], img: "/img/exercises/polea-baja.png", desc: "De espaldas a la polea baja, eleva el agarre al frente manteniendo codo casi fijo." },
+  { id: "o-press-mancuernas", name: "Press con mancuernas", muscle: "Hombro", level: "intermedio", equip: "mancuernas", focus: ["fuerza"], img: "/img/exercises/press-mancuerna.png", desc: "Sentado, empuja mancuernas sobre la cabeza y baja hasta altura de orejas." },
+  { id: "o-press-frontal", name: "Press frontal con mancuernas", muscle: "Hombro", level: "intermedio", equip: "mancuernas", focus: ["fuerza"], img: "/img/exercises/press-frontal.png", desc: "Con mancuernas frente a la cabeza, empuja hacia arriba y baja hasta clavículas." },
+  { id: "o-press-militar", name: "Press militar", muscle: "Hombro", level: "intermedio", equip: "barra", focus: ["fuerza"], img: "/img/exercises/militar.png", desc: "Sentado, baja la barra a zona clavicular y empuja hasta casi extender codos." },
+  { id: "o-remo-menton", name: "Elevaciones laterales en polea baja", muscle: "hombro", level: "intermedio", equip: "barra", focus: ["hipertrofia"], img: "/img/exercises/polea-lateral.png", desc: "De lado a la polea, eleva el brazo en abducción hasta altura de hombro." },
 
-  { id: "c-hollow-hold", name: "Hollow hold", muscle: "core", level: "intermedio", equip: "peso corporal", focus: ["estabilidad"], img: "/img/exercises/hollow-hold.jpg", desc: "Boca arriba, despega hombros y piernas manteniendo zona lumbar pegada al suelo. Respira sin perder tensión." },
-  { id: "c-rueda-abdominal", name: "Rueda abdominal (ab wheel)", muscle: "core", level: "intermedio", equip: "rueda", focus: ["estabilidad"], img: "/img/exercises/rueda-abdominal.jpg", desc: "Desde rodillas, rueda hacia delante manteniendo core firme sin colapsar la lumbar; regresa con control." }
+  { id: "c-hollow-hold", name: "Hollow hold", muscle: "core", level: "intermedio", equip: "peso corporal", focus: ["estabilidad"], img: "/img/exercises/hollow.png", desc: "Boca arriba, despega hombros y piernas manteniendo zona lumbar pegada al suelo." },
+  { id: "c-plancha", name: "Plancha", muscle: "core", level: "principiante", equip: "peso corporal", focus: ["estabilidad"], img: "/img/exercises/plancha.png", desc: "Alinea hombros, cadera y tobillos, con abdomen y glúteos activos." },
+  { id: "c-rueda-abdominal", name: "Rueda abdominal (ab wheel)", muscle: "core", level: "intermedio", equip: "rueda", focus: ["estabilidad"], img: "/img/exercises/rueda.png", desc: "Desde rodillas, rueda hacia delante sin colapsar la zona lumbar y regresa con control." }
 ];
 
 // ========= Utilidades =========
 const DEFAULT_EX = { focus: [], equip: "", level: "principiante", muscle: "Otro" };
 
+function slug(s) {
+  return String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // quita acentos
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
 function normalize(e) {
   const x = { ...DEFAULT_EX, ...e };
-  // corrige valores escritos con mayúsculas/minúsculas variadas
   x.muscle = capitalizeWords(String(x.muscle || "Otro"));
   x.level = String(x.level || "principiante").toLowerCase();
   if (!Array.isArray(x.focus)) x.focus = x.focus ? [String(x.focus)] : [];
@@ -106,7 +129,6 @@ function mergeExercises(...lists) {
     if (!raw || !raw.id) return;
     const cur = map.get(raw.id);
     const next = normalize(raw);
-    // preferir el que tenga más campos (desc, img, focus con mayor longitud)
     if (!cur) {
       map.set(raw.id, next);
     } else {
@@ -138,13 +160,13 @@ const ALL_SOURCES = [COMPANION_EXERCISES, USER_EXERCISES];
 const ALL_EXERCISES = mergeExercises(...ALL_SOURCES);
 
 const MUSCLES = uniqueValues(ALL_EXERCISES, "muscle");
-const LEVELS = ["principiante", "intermedio", "avanzado"]; // catálogo fijo
+const LEVELS = ["principiante", "intermedio", "avanzado"];
 
 export default function Ejercicios() {
   const [q, setQ] = useState("");
   const [muscle, setMuscle] = useState("todos");
   const [level, setLevel] = useState("todos");
-  const [show, setShow] = useState(null); // id de ejercicio
+  const [show, setShow] = useState(null); // id de ejercicio seleccionado
 
   const results = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -169,7 +191,9 @@ export default function Ejercicios() {
         <div>
           <div className="brand-mini">🏋 FitLife</div>
           <h1 className="ex-title">Explora ejercicios</h1>
-          <p className="ex-sub">Filtra por grupo muscular, nivel y equipo. Toca una tarjeta para tips rápidos.</p>
+          <p className="ex-sub">
+            Filtra por grupo muscular, nivel y equipo. Toca una tarjeta para tips rápidos.
+          </p>
         </div>
         <div className="ex-kpis">
           <div className="ex-kpi">
@@ -189,13 +213,16 @@ export default function Ejercicios() {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar: “sentadilla”, “mancuernas”…"
+            placeholder='Buscar: "sentadilla", "mancuernas"…'
             aria-label="Buscar ejercicios"
           />
         </div>
 
         <div className="ex-chips" role="tablist" aria-label="Grupos musculares">
-          <button className={`chip ${muscle === "todos" ? "chip-active" : ""}`} onClick={() => setMuscle("todos")}>
+          <button
+            className={`chip ${muscle === "todos" ? "chip-active" : ""}`}
+            onClick={() => setMuscle("todos")}
+          >
             Todos
           </button>
           {MUSCLES.map((m) => (
@@ -210,11 +237,15 @@ export default function Ejercicios() {
         </div>
 
         <div className="ex-levels">
-          <label className="sr-only" htmlFor="level">Nivel</label>
+          <label className="sr-only" htmlFor="level">
+            Nivel
+          </label>
           <select id="level" value={level} onChange={(e) => setLevel(e.target.value)}>
             <option value="todos">Todos los niveles</option>
             {LEVELS.map((l) => (
-              <option key={l} value={l}>{l[0].toUpperCase() + l.slice(1)}</option>
+              <option key={l} value={l}>
+                {l[0].toUpperCase() + l.slice(1)}
+              </option>
             ))}
           </select>
         </div>
@@ -235,7 +266,7 @@ export default function Ejercicios() {
               {e.img ? (
                 <img src={e.img} alt={`Ilustración de ${e.name}`} />
               ) : (
-                <div className={`ex-thumb-deco m-${e.muscle}`} />
+                <div className={`ex-thumb-deco m-${slug(e.muscle)}`} />
               )}
             </div>
             <div className="ex-body">
@@ -268,7 +299,9 @@ export default function Ejercicios() {
                 <Badge tone="indigo">{selected.level}</Badge>
                 <Badge tone="slate">{selected.equip}</Badge>
                 {selected.focus.map((f) => (
-                  <Badge key={f} tone="emerald">{f}</Badge>
+                  <Badge key={f} tone="emerald">
+                    {f}
+                  </Badge>
                 ))}
               </div>
 
@@ -279,9 +312,7 @@ export default function Ejercicios() {
               )}
 
               <ul className="ex-tips">
-                {selected.desc ? (
-                  <li>{selected.desc}</li>
-                ) : null}
+                {selected.desc ? <li>{selected.desc}</li> : null}
                 <li>Calienta 5–10 min antes.</li>
                 <li>Controla el rango de movimiento.</li>
                 <li>Respira: esfuerzo al exhalar.</li>
@@ -289,7 +320,9 @@ export default function Ejercicios() {
               </ul>
             </div>
             <div className="modal-actions">
-              <button className="btn-secondary" onClick={() => setShow(null)}>Cerrar</button>
+              <button className="btn-secondary" onClick={() => setShow(null)}>
+                Cerrar
+              </button>
               <button className="btn">Agregar a rutina (próximamente)</button>
             </div>
           </div>

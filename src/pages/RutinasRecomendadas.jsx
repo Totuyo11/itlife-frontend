@@ -1,329 +1,467 @@
-// src/pages/RutinasRecomendadas.js
-import React, { useState } from "react";
+// src/pages/Rutinas.js
+import React, { useEffect, useState } from "react";
 import "../Register.css";
 import { useAuth } from "../AuthContext";
-import { toast } from "react-toastify";
 
-// Solo usamos validarInputs (ya no recommendRoutines aquí)
+// Servicios
+import { recomendarRutinas } from "../services/recommenderService";
 import { validarInputs } from "../recommender";
+import { postProcessPlan } from "../services/planPostProcessor";
 
-// Usa tus 52 ejercicios para construir la rutina
-import { buildDynamicRoutinesFromML } from "../services/dynamicGenerator";
+import {
+  listenRoutines,
+  createRoutineWithToast,
+  updateRoutineWithToast,
+  deleteRoutineWithToast,
+} from "../services/routines";
 
-// === Opciones de selects ===
-const OBJETIVOS = [
-  { value: 1, label: "Perder peso" },
-  { value: 2, label: "Ganar músculo" },
-  { value: 3, label: "HIIT" },
-  { value: 4, label: "Recomposición" },
-];
+// ---------- Utils texto <-> items ----------
+function parseItemsFromText(text) {
+  return (text || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((name) => ({ name }));
+}
+function itemsToText(items = []) {
+  return (items || []).map((it) => it?.name || "").join("\n");
+}
 
-const EXPERIENCIA = [
-  { value: 0, label: "Novato" },
-  { value: 1, label: "Intermedio" },
-  { value: 2, label: "Avanzado" },
-  { value: 3, label: "Pro" },
-];
-
-const TIEMPO = [
-  { value: 1, label: "10-20 min" },
-  { value: 2, label: "20-30 min" },
-  { value: 3, label: "30-45 min" },
-  { value: 4, label: "45-60 min" },
-];
-
-// === Cliente API ML ===
+// ---------- Cliente API ML ----------
 const LS_API = (localStorage.getItem("fitlife_api_url") || "").trim();
 const API =
   LS_API ||
   process.env.REACT_APP_API_URL ||
   `http://${window.location.hostname}:8000`;
 
-async function predictDayBasedPlan(payload) {
+async function predictRoutineAPI(payload) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1500);
+
   try {
     const res = await fetch(`${API}/predict`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      signal: controller.signal,
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const msg = await res.text().catch(() => "");
+      throw new Error(`API error ${res.status} ${msg}`);
+    }
     return await res.json();
   } catch (err) {
-    console.warn("Error llamando a /predict", err);
+    console.warn("Predict fallback:", err.message);
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
-export default function RutinasRecomendadas() {
-  const { user } = useAuth();
+// ---------- Opciones ----------
+const OBJETIVOS = {
+  1: "bajar peso",
+  2: "subir peso",
+  3: "entrenamiento HIIT",
+  4: "recomposición muscular",
+};
+const DIFICULTADES = { 1: "principiante", 2: "intermedio", 3: "avanzado" };
+const LIMITACIONES = { 1: "articulares", 2: "muscular", 3: "enfermedad", 4: "ninguna" };
+const TIEMPOS = { 1: "30-45min", 2: "60-90min", 3: "120-180min" };
+const FRECUENCIAS = { 1: "1-2 días", 2: "3-4 días", 3: "5-6 días" };
 
-  const [form, setForm] = useState({
-    sexo: 0,
-    edad: 25,
-    dificultad: 0,
-    tiempo: 3,
-    objetivo: 1,
-  });
-
-  const [loading, setLoading] = useState(false);
-  const [saving3, setSaving3] = useState(false);
-  const [results, setResults] = useState([]);
-
-  const [open, setOpen] = useState(false);
-  const [detail, setDetail] = useState(null);
-
-  // ================== GENERAR RECOMENDACIONES ==================
-  async function onRecommend(e) {
-    e?.preventDefault?.();
-
-    const norm = validarInputs({
-      objetivo: form.objetivo,
-      dificultad: form.dificultad,
-      limitacion: 0,
-      tiempo: form.tiempo,
-      frecuencia: 3,
+// ---------- Utils para plan ----------
+function planToItems(planSemanal = [], schemeOverride = null) {
+  const items = [];
+  for (const dia of planSemanal) {
+    const foco = Array.isArray(dia?.foco) ? dia.foco : [];
+    items.push({
+      name: `Día ${dia?.dia ?? "?"}: ${foco.join(" + ")} · ${
+        dia?.duracionEstimadaMin ?? "?"
+      } min`,
     });
 
-    setLoading(true);
-    try {
-      // 1) Llamar al modelo ML
-      const ml = await predictDayBasedPlan(norm);
+    const bloques = Array.isArray(dia?.bloques) ? dia.bloques : [];
+    for (const b of bloques) {
+      const grupo = (b?.grupo || "").toUpperCase();
+      items.push({ name: `  • ${grupo}` });
 
-      // IMPORTANTE: aquí NO usamos una variable "focus_plan", solo la propiedad del objeto:
-      const focusPlan =
-        ml && Array.isArray(ml.focus_plan) && ml.focus_plan.length
-          ? ml.focus_plan
-          : [["pecho"], ["espalda"], ["pierna"]];
+      const ejercicios = Array.isArray(b?.ejercicios) ? b.ejercicios : [];
+      ejercicios.forEach((ex, idx) => {
+        const sch = schemeOverride || ex?.esquema || {};
+        const series = sch.series ?? "?";
+        const reps = sch.reps ?? "?";
+        const descanso = sch.descanso ?? "?";
+        items.push({
+          name: `    ${idx + 1}. ${ex?.nombre || "Ejercicio"} — ${series} series · ${reps} · descanso ${descanso}`,
+        });
+      });
+    }
+    items.push({ name: "" });
+  }
+  if (items.length && items[items.length - 1].name === "") items.pop();
+  return items;
+}
 
-      // 2) Traducir categoría de tiempo → minutos aproximados
-      const minutosMap = { 1: 15, 2: 25, 3: 40, 4: 55 };
-      const minutos = minutosMap[form.tiempo] || 40;
+function buildPlanFromFocus(focusPlan = [], ranked = []) {
+  const plan = [];
+  for (let i = 0; i < focusPlan.length; i++) {
+    const focoDia = Array.isArray(focusPlan[i]) ? focusPlan[i] : [];
+    const minutos = ranked[i]?.minutos ?? 30;
+    const bloques = focoDia.map((g) => ({ grupo: g, ejercicios: [] }));
+    plan.push({
+      dia: i + 1,
+      foco: focoDia,
+      duracionEstimadaMin: minutos,
+      bloques,
+    });
+  }
+  return plan;
+}
 
-      const nivelLabel =
-        EXPERIENCIA.find((x) => x.value === form.dificultad)?.label.toLowerCase() ||
-        "intermedio";
-      const objetivoLabel =
-        OBJETIVOS.find((x) => x.value === form.objetivo)?.label || "General";
+export default function Rutinas() {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [routines, setRoutines] = useState([]);
+  const [name, setName] = useState("");
+  const [rawItems, setRawItems] = useState("");
+  const [genLoading, setGenLoading] = useState(false);
+  const [genInputs, setGenInputs] = useState({
+    objetivo: 1,
+    dificultad: 1,
+    limitacion: 4,
+    tiempo: 1,
+    frecuencia: 2,
+  });
 
-      // 3) Generar rutinas dinámicas usando tus ejercicios
-      const dyn = buildDynamicRoutinesFromML(
-        { focus_plan: focusPlan, metadata: ml?.metadata || {} },
-        { minutos, nivel: nivelLabel, objetivo: objetivoLabel }
-      );
+  const [editing, setEditing] = useState(null);
+  const [viewer, setViewer] = useState(null); // { id, name, itemsText }
 
-      // 4) Adaptar al formato de tarjetas para la UI
-      const final = dyn.map((r, index) => ({
-        ...r,
-        index: index + 1,
-        name: r.name,
-        foco: r.focus,
-        nivel: nivelLabel,
-        minutos: r.minutes,
-        esquema: r.mlVersion || "ML",
-        items: (r.exercises || []).map((ex, idx) => ({
-          name: `${idx + 1}. ${ex.name} — ${ex.sets}x${ex.reps} (${ex.muscle})`,
-        })),
-        // un score dummy mientras no haya score real
-        score: Math.random() * 1.0 + 4.0,
-      }));
-
-      setResults(final);
-
-      if (!final.length) {
-        toast.info("No hubo coincidencias. Ajusta los filtros.");
+  useEffect(() => {
+    if (!user) {
+      setRoutines([]);
+      setLoading(false);
+      return;
+    }
+    const unsub = listenRoutines(
+      user.uid,
+      (rows) => {
+        setRoutines(rows);
+        setLoading(false);
+      },
+      (err) => {
+        console.error("[listenRoutines] error:", err);
+        setLoading(false);
       }
+    );
+    return () => unsub && unsub();
+  }, [user]);
+
+  // Crear manual (con toast)
+  async function onCreate(e) {
+    e.preventDefault();
+    if (!user) return;
+    const cleanName = (name || "").trim();
+    const items = parseItemsFromText(rawItems);
+    if (!cleanName || items.length === 0) return;
+    try {
+      await createRoutineWithToast(user.uid, { name: cleanName, items });
+      setName("");
+      setRawItems("");
     } catch (err) {
       console.error(err);
-      toast.error("Error al recomendar. Revisa la consola.");
-    } finally {
-      setLoading(false);
     }
   }
 
-  // ================== GUARDAR RUTINAS ==================
-  async function saveOne(rec) {
-    if (!user) return toast.info("Inicia sesión para guardar tus rutinas.");
+  // Generar con IA + reglas (con logs y manejo de errores)
+  async function onGenerateAI(e) {
+    e.preventDefault();
+    if (!user) {
+      console.warn("[onGenerateAI] usuario no logueado");
+      return;
+    }
+
+    let norm;
     try {
-      const name =
-        rec?.name || `Rutina — ${prettyFoco(rec.foco)} · ${rec.minutos || 30} min`;
+      norm = validarInputs(genInputs);
+    } catch (err) {
+      console.error("[onGenerateAI] validarInputs falló:", err);
+      return;
+    }
 
-      const items =
-        Array.isArray(rec?.items) && rec.items.length
-          ? rec.items
-          : [
-              { name: `Foco: ${prettyFoco(rec.foco)}` },
-              { name: `Duración estimada: ${rec.minutos || 30} min` },
-              { name: `Nivel: ${rec.nivel}` },
-            ];
+    console.log("[onGenerateAI] inicio con filtros:", norm);
+    setGenLoading(true);
 
-      await createRoutineWithToast(user.uid, {
-        name,
-        items,
-        _meta: {
-          fuente: "recomendadas_dynamic",
-          minutos: rec?.minutos ?? null,
-          nivel: rec?.nivel ?? null,
-          foco: rec?.foco ?? null,
-          modelVersion: rec?.esquema ?? null,
-          score: rec?.score ?? null,
+    try {
+      // 1) Reglas (tu algoritmo clásico)
+      const ranked = await recomendarRutinas(norm);
+      console.log("[onGenerateAI] ranked (reglas):", ranked);
+
+      // 2) Intentar llamar a la API ML (con timeout interno)
+      let focusPlan = null;
+      let scheme = null;
+      let modelVer = "NA";
+
+      const pred = await predictRoutineAPI(norm);
+      console.log("[onGenerateAI] respuesta ML /predict:", pred);
+
+      if (pred && Array.isArray(pred.focus_plan) && pred.focus_plan.length) {
+        focusPlan = pred.focus_plan;
+        scheme = pred.scheme || null;
+        modelVer = pred.metadata?.model_version || "NA";
+      }
+
+      // 3) Si la IA no mandó focus_plan, armamos uno con tus reglas
+      if (!focusPlan) {
+        console.log("[onGenerateAI] sin focus_plan, usando top reglas");
+        const top = ranked.slice(0, 3).map((r) =>
+          Array.isArray(r.foco) ? r.foco : [r.foco || "General"]
+        );
+        focusPlan = top.length ? top : [["General"], ["General"], ["General"]];
+      }
+
+      // 4) Construir plan “vacío” por día
+      const plan = buildPlanFromFocus(focusPlan, ranked);
+      console.log("[onGenerateAI] plan base:", plan);
+
+      // 5) Post-procesar el plan (ajustes por perfil)
+      const { plan: planPP, resumen } = postProcessPlan(plan, {
+        perfil: {
+          experiencia: norm.dificultad,
+          imc: 22,
+          limitacion: norm.limitacion,
         },
       });
-    } catch (e) {
-      console.error(e);
-    }
-  }
+      console.log("[onGenerateAI] plan post-procesado:", planPP, resumen);
 
-  async function saveTop3() {
-    if (!user) return toast.info("Inicia sesión para guardar tus rutinas.");
-    const top = results.slice(0, 3);
-    if (!top.length) return toast.info("Primero genera recomendaciones.");
+      const items = planToItems(planPP, scheme);
+      console.log("[onGenerateAI] items finales:", items);
 
-    setSaving3(true);
-    try {
-      for (let i = 0; i < top.length; i++) {
-        await saveOne(top[i]);
+      if (!items.length) {
+        throw new Error("Plan vacío después de postProcessPlan");
       }
-      toast.success("Top 3 guardado.");
-    } catch (e) {
-      console.error(e);
-      toast.error("No se pudo guardar el Top 3.");
+
+      const genName = `Rutina ${OBJETIVOS[norm.objetivo]} · ${FRECUENCIAS[norm.frecuencia]} · ${TIEMPOS[norm.tiempo]}`;
+      console.log("[onGenerateAI] guardando rutina con nombre:", genName);
+
+      await createRoutineWithToast(user.uid, {
+        name: genName,
+        items,
+        _meta: {
+          fuente: scheme ? "ML+rules" : "rules-only",
+          modelVersion: modelVer,
+          postProcess: resumen,
+          ...norm,
+        },
+      });
+
+      console.log("[onGenerateAI] rutina creada OK");
+    } catch (err) {
+      console.error("[onGenerateAI] ERROR:", err);
     } finally {
-      setSaving3(false);
+      setGenLoading(false);
+      console.log("[onGenerateAI] fin, genLoading = false");
     }
   }
 
-  function openDetails(rec) {
-    setDetail(rec);
-    setOpen(true);
+  // Editar / eliminar / ver contenido
+  function openEdit(rt) {
+    setEditing({
+      id: rt.id,
+      name: rt.name || "",
+      itemsText: itemsToText(rt.items || []),
+    });
+  }
+  async function onSaveEdit() {
+    if (!user || !editing) return;
+    const payload = {
+      name: (editing.name || "").trim() || "Rutina",
+      items: parseItemsFromText(editing.itemsText || ""),
+    };
+    try {
+      await updateRoutineWithToast(user.uid, editing.id, payload);
+      setEditing(null);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+  function openViewer(rt) {
+    setViewer({
+      id: rt.id,
+      name: rt.name || "Rutina",
+      itemsText: itemsToText(rt.items || []),
+    });
+  }
+  async function onDelete(rt) {
+    if (!user) return;
+    try {
+      await deleteRoutineWithToast(user.uid, rt.id, rt.name);
+    } catch (err) {
+      console.error(err);
+    }
   }
 
-  // ================== RENDER ==================
+  // ---------- Render ----------
   return (
     <div className="rtn-wrap">
       <header className="rtn-hero">
-        <h1 className="rtn-title">✨ Recomendador de Rutinas (IA)</h1>
-        <p className="rtn-sub">Elige y guarda tus mejores recomendaciones 💪</p>
+        <h1 className="rtn-title">Rutinas</h1>
+        <p className="rtn-sub">
+          Crea planes enfocados y organízalos por ejercicios.{" "}
+          <span className="pill">Uno por línea</span>
+        </p>
       </header>
 
-      {/* Formulario */}
+      {/* Generador con IA */}
       <section className="rtn-section">
         <div className="rtn-card form-deco">
-          <form className="rtn-form" onSubmit={onRecommend}>
+          <div className="rtn-head">
+            <h2>Generar Rutina</h2>
+          </div>
+          <form className="rtn-form" onSubmit={onGenerateAI}>
             <div className="rtn-grid-compact">
               <Select
-                label="Sexo"
-                value={form.sexo}
-                onChange={(v) => setForm((s) => ({ ...s, sexo: Number(v) }))}
-                options={[
-                  { value: 0, label: "Prefiero no decir" },
-                  { value: 1, label: "Femenino" },
-                  { value: 2, label: "Masculino" },
-                ]}
-              />
-              <Input
-                label="Edad"
-                type="number"
-                min={12}
-                max={90}
-                value={form.edad}
-                onChange={(v) =>
-                  setForm((s) => ({ ...s, edad: Number(v) || 18 }))
-                }
-              />
-              <Select
-                label="Experiencia"
-                value={form.dificultad}
-                onChange={(v) =>
-                  setForm((s) => ({ ...s, dificultad: Number(v) }))
-                }
-                options={EXPERIENCIA}
-              />
-              <Select
-                label="Minutos"
-                value={form.tiempo}
-                onChange={(v) =>
-                  setForm((s) => ({ ...s, tiempo: Number(v) }))
-                }
-                options={TIEMPO}
-              />
-              <Select
                 label="Objetivo"
-                value={form.objetivo}
+                value={genInputs.objetivo}
                 onChange={(v) =>
-                  setForm((s) => ({ ...s, objetivo: Number(v) }))
+                  setGenInputs((s) => ({ ...s, objetivo: Number(v) }))
                 }
-                options={OBJETIVOS}
+                options={mapObj(OBJETIVOS)}
+              />
+              <Select
+                label="Dificultad"
+                value={genInputs.dificultad}
+                onChange={(v) =>
+                  setGenInputs((s) => ({ ...s, dificultad: Number(v) }))
+                }
+                options={mapObj(DIFICULTADES)}
+              />
+              <Select
+                label="Limitación"
+                value={genInputs.limitacion}
+                onChange={(v) =>
+                  setGenInputs((s) => ({ ...s, limitacion: Number(v) }))
+                }
+                options={mapObj(LIMITACIONES)}
+              />
+              <Select
+                label="Tiempo"
+                value={genInputs.tiempo}
+                onChange={(v) =>
+                  setGenInputs((s) => ({ ...s, tiempo: Number(v) }))
+                }
+                options={mapObj(TIEMPOS)}
+              />
+              <Select
+                label="Frecuencia"
+                value={genInputs.frecuencia}
+                onChange={(v) =>
+                  setGenInputs((s) => ({ ...s, frecuencia: Number(v) }))
+                }
+                options={mapObj(FRECUENCIAS)}
               />
             </div>
-
             <div className="rtn-actions">
-              <button className="btn" type="submit" disabled={loading}>
-                {loading ? "Buscando..." : "Recomendar"}
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                disabled={!results.length || saving3}
-                onClick={saveTop3}
-                style={{ marginLeft: 8 }}
-              >
-                {saving3 ? "Guardando..." : "Guardar Top 3"}
+              <button className="btn" type="submit" disabled={genLoading}>
+                {genLoading ? "Generando..." : "Generar rutina"}
               </button>
             </div>
           </form>
         </div>
       </section>
 
-      {/* Resultados */}
+      {/* Crear manual */}
+      <section className="rtn-section">
+        <div className="rtn-card form-deco">
+          <div className="rtn-head">
+            <h2>Crear rutina (manual)</h2>
+          </div>
+          <form className="rtn-form" onSubmit={onCreate}>
+            <div className="rtn-row">
+              <label>Nombre</label>
+              <input
+                className="rtn-input"
+                placeholder="Ej. Full Body 45min"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+            <div className="rtn-row">
+              <label>Ejercicios (uno por línea)</label>
+              <textarea
+                className="rtn-textarea"
+                rows={5}
+                placeholder={`Sentadilla\nPress banca\nRemo con barra`}
+                value={rawItems}
+                onChange={(e) => setRawItems(e.target.value)}
+              />
+            </div>
+            <div className="rtn-actions">
+              <button className="btn" type="submit" disabled={!name || !rawItems}>
+                + Guardar rutina
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      {/* Lista de rutinas */}
       <section className="rtn-section">
         <div className="rtn-head">
-          <h2>Resultados</h2>
-          {!!results.length && (
-            <div className="rtn-sec-note">{results.length} opciones</div>
-          )}
+          <h2>Tus rutinas</h2>
+          <div className="rtn-sec-note">{routines.length} en total</div>
         </div>
 
-        {results.length === 0 ? (
+        {loading ? (
+          <div className="rtn-grid">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="rtn-card skeleton" style={{ height: 160 }} />
+            ))}
+          </div>
+        ) : routines.length === 0 ? (
           <div className="rtn-empty">
-            <div className="rtn-empty-ico">🔎</div>
-            <div className="rtn-empty-title">Aún no hay recomendaciones</div>
+            <div className="rtn-empty-ico">🗂️</div>
+            <div className="rtn-empty-title">Aún no tienes rutinas</div>
             <div className="rtn-empty-sub">
-              Ajusta los filtros y presiona “Recomendar”.
+              Crea una arriba para empezar a planificar tus sesiones.
             </div>
           </div>
         ) : (
-          <div className="rec-grid">
-            {results.map((r) => (
-              <article key={r.id} className="rec-card">
-                <div className="rec-card-head">
-                  <div>
-                    <h3 className="rec-title">{r.name}</h3>
-                    <span className="rec-rank">#{r.index}</span>
-                  </div>
-                  <div className="rec-badges">
-                    <span className="pill">{r.nivel}</span>
-                    <span className="pill">{r.minutos} min</span>
-                    <span className="pill">ML {r.esquema}</span>
-                    <span className="pill">⭐ {r.score.toFixed(2)}</span>
+          <div className="rtn-grid">
+            {routines.map((rt) => (
+              <article key={rt.id} className="rtn-card">
+                <div className="rtn-card-head">
+                  <h3 className="rtn-card-title">{rt.name}</h3>
+                  <div className="rtn-badges">
+                    <span className="pill">
+                      {(rt.items || []).length} ejercicios
+                    </span>
                   </div>
                 </div>
-
-                <div className="rec-body">
-                  <ul className="rec-list">
-                    <li>Foco: {prettyFoco(r.foco)}</li>
-                    <li>Duración estimada: {r.minutos} min</li>
-                  </ul>
-                </div>
-
-                <div className="rec-actions">
-                  <button className="btn" onClick={() => saveOne(r)}>
-                    Guardar esta
+                <ul className="rtn-items">
+                  {(rt.items || [])
+                    .slice(0, 5)
+                    .map((it, idx) => (
+                      <li key={idx} className="rtn-item">
+                        <span className="rtn-bullet">•</span>
+                        <span>{it.name}</span>
+                      </li>
+                    ))}
+                  {(rt.items || []).length > 5 && (
+                    <li className="rtn-more">
+                      … y {(rt.items || []).length - 5} más
+                    </li>
+                  )}
+                </ul>
+                <div className="rtn-card-actions">
+                  <button className="btn-secondary" onClick={() => openViewer(rt)}>
+                    👁️ Ver contenido
                   </button>
-                  <button
-                    className="btn-secondary"
-                    onClick={() => openDetails(r)}
-                  >
-                    Ver contenido
+                  <button className="btn-secondary" onClick={() => openEdit(rt)}>
+                    ✏️ Editar
+                  </button>
+                  <button className="btn-danger" onClick={() => onDelete(rt)}>
+                    🗑️ Eliminar
                   </button>
                 </div>
               </article>
@@ -332,44 +470,59 @@ export default function RutinasRecomendadas() {
         )}
       </section>
 
-      {/* Modal detalles */}
-      {open && detail && (
-        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+      {/* Modal editar */}
+      {editing && (
+        <div className="modal-backdrop" onClick={() => setEditing(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-title">Editar rutina</div>
+            <div className="modal-body">
+              <label>Nombre</label>
+              <input
+                className="rtn-input"
+                value={editing.name}
+                onChange={(e) =>
+                  setEditing((s) => ({ ...s, name: e.target.value }))
+                }
+              />
+              <label>Ejercicios (uno por línea)</label>
+              <textarea
+                className="rtn-textarea"
+                rows={8}
+                value={editing.itemsText}
+                onChange={(e) =>
+                  setEditing((s) => ({ ...s, itemsText: e.target.value }))
+                }
+              />
+            </div>
+            <div className="modal-actions">
+              <button className="btn-secondary" onClick={() => setEditing(null)}>
+                Cancelar
+              </button>
+              <button className="btn" onClick={onSaveEdit}>
+                Guardar cambios
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal visor grande */}
+      {viewer && (
+        <div className="modal-backdrop" onClick={() => setViewer(null)}>
           <div
             className="modal modal--xl"
             onClick={(e) => e.stopPropagation()}
+            aria-modal="true"
+            role="dialog"
           >
-            <div className="modal-title">
-              <strong>#{detail.index}</strong> {detail.name}
-            </div>
+            <div className="modal-title">{viewer.name}</div>
             <div className="modal-body modal-body--scroll">
-              <div className="rec-badges" style={{ marginBottom: 12 }}>
-                <span className="pill">{detail.nivel}</span>
-                <span className="pill">{detail.minutos} min</span>
-                <span className="pill">ML {detail.esquema}</span>
-                <span className="pill">⭐ {detail.score.toFixed(2)}</span>
-              </div>
-
-              <ul className="rec-list">
-                <li>Foco: {prettyFoco(detail.foco)}</li>
-                <li>Duración estimada: {detail.minutos} min</li>
-              </ul>
-
-              <h3>Ejercicios</h3>
-              <ul className="rec-list">
-                {(detail.items || []).map((it, idx) => (
-                  <li key={idx}>{it.name}</li>
-                ))}
-              </ul>
+              <pre className="viewer-pre">
+{viewer.itemsText}
+              </pre>
             </div>
             <div className="modal-actions">
-              <button className="btn" onClick={() => saveOne(detail)}>
-                Guardar esta
-              </button>
-              <button
-                className="btn-secondary"
-                onClick={() => setOpen(false)}
-              >
+              <button className="btn-secondary" onClick={() => setViewer(null)}>
                 Cerrar
               </button>
             </div>
@@ -380,16 +533,11 @@ export default function RutinasRecomendadas() {
   );
 }
 
-// ================== COMPONENTES DE FORM ==================
 function Select({ label, value, onChange, options }) {
   return (
     <label className="rtn-row" style={{ minWidth: 220 }}>
       <span>{label}</span>
-      <select
-        className="rtn-input"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
+      <select className="rtn-input" value={value} onChange={(e) => onChange(e.target.value)}>
         {options.map((op) => (
           <option key={op.value} value={op.value}>
             {op.label}
@@ -399,25 +547,6 @@ function Select({ label, value, onChange, options }) {
     </label>
   );
 }
-
-function Input({ label, value, onChange, type = "text", ...rest }) {
-  return (
-    <label className="rtn-row" style={{ minWidth: 220 }}>
-      <span>{label}</span>
-      <input
-        className="rtn-input"
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        {...rest}
-      />
-    </label>
-  );
-}
-
-// ================== HELPERS ==================
-function prettyFoco(f) {
-  if (!f) return "general";
-  if (Array.isArray(f)) return f.join(" / ");
-  return String(f).replaceAll("_", " ").toLowerCase();
+function mapObj(obj) {
+  return Object.entries(obj).map(([v, t]) => ({ value: Number(v), label: t }));
 }

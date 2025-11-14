@@ -1,0 +1,1 @@
+web: uvicorn src.fastapi_app_sklearn:app --host 0.0.0.0 --port $PORT

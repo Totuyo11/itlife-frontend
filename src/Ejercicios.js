@@ -189,7 +189,7 @@ export default function Ejercicios() {
               <button className="btn-secondary" onClick={() => setShow(null)}>
                 Cerrar
               </button>
-              <button className="btn">Agregar a rutina (próximamente)</button>
+
             </div>
           </div>
         </div>
